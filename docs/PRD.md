@@ -179,8 +179,8 @@ Watching a video
 
 ## 12. Open questions
 
-- [ ] Which two STT providers to compare in the spike?
-- [ ] Which LLM provider and model for v1?
+- [x] Which two STT providers to compare in the spike? **Deepgram (nova-3) and Groq (Whisper large-v3 turbo)**, see `spikes/stt-llm/`. Winner picked after the spike.
+- [x] Which LLM provider and model for v1? **Google Gemini** (`gemini-3.8-flash` to start; confirm after the spike).
 - [ ] Keep raw audio after saving by default, or delete?
 - [ ] Default hotkey? (Must not clash with common apps.)
 - [ ] Note language: always transcript language, or user-selectable?

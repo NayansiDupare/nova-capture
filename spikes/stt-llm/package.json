@@ -1,0 +1,11 @@
+{
+  "name": "spike-stt-llm",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Phase 0 spike: WAV -> Deepgram/Groq transcript -> Gemini note. Throwaway.",
+  "type": "module",
+  "scripts": {
+    "transcribe": "node --env-file-if-exists=.env transcribe.mjs",
+    "note": "node --env-file-if-exists=.env note.mjs"
+  }
+}
