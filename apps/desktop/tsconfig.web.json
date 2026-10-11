@@ -1,0 +1,10 @@
+{
+  // Renderers: browser APIs only, no Node (AGENTS.md §4.2).
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "jsx": "react-jsx"
+  },
+  "include": ["src/renderer", "src/preload/api.ts"]
+}

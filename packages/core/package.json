@@ -1,0 +1,16 @@
+{
+  "name": "@nova/core",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Pure TypeScript domain: types, zod schemas, state machine, prompts, chunk math. No Electron or Node APIs.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "zod": "4.6.5"
+  }
+}

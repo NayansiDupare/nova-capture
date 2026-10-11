@@ -1,0 +1,13 @@
+{
+  "name": "spike-loopback-capture",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Phase 0 spike: Electron loopback audio -> 16 kHz mono WAV. Throwaway.",
+  "main": "main.js",
+  "scripts": {
+    "start": "node launch.js"
+  },
+  "devDependencies": {
+    "electron": "^44.7.0"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  // Tests are checked separately: Vitest's types pull in Node globals, which must not leak into src.
+  "extends": "./tsconfig.json",
+  "include": ["src"],
+  "exclude": []
+}
