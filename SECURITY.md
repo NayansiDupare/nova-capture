@@ -142,7 +142,7 @@ frame-ancestors 'none';
 - Lockfile committed; installs use `pnpm install --frozen-lockfile` in CI.
 - `pnpm audit` runs in CI; high/critical issues block release.
 - Prefer well-maintained packages with few transitive dependencies.
-- Native modules (`better-sqlite3`, optional helper) built in CI, not downloaded from unknown sources.
+- Native modules (the optional capture helper) built in CI, not downloaded from unknown sources.
 - Review dependency updates; don't blindly accept major bumps.
 
 ---

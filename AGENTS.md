@@ -48,7 +48,6 @@ pnpm test                 # vitest (unit + pipeline + repository)
 pnpm test:coverage        # vitest with coverage thresholds (what CI runs)
 pnpm test:e2e             # playwright for electron
 pnpm eval                 # run eval harness against real providers (costs money!)
-pnpm rebuild:native       # rebuild better-sqlite3 for Electron
 ```
 
 **Before finishing any task, run:** `pnpm typecheck && pnpm lint && pnpm test`
