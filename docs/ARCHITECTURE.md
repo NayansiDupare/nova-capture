@@ -90,7 +90,7 @@ Electron is split into one trusted process, several untrusted windows, and one w
 +------------------------------ MAIN PROCESS (Node, trusted) ------------------------------+
 | App lifecycle | Session Orchestrator (state machine) | Job queue | Repositories          |
 | Settings + safeStorage | STT/LLM clients | Global hotkey | Tray | Window manager         |
-| SQLite (better-sqlite3) | Logger | IPC router with schema validation                     |
+| SQLite (node:sqlite)    | Logger | IPC router with schema validation                     |
 +-----+-------------------------+-------------------------+-------------------------------+
       | typed IPC               | typed IPC               | MessagePort + utilityProcess API
       v                         v                         v
@@ -260,24 +260,30 @@ Timeouts, exponential backoff with jitter, per-chunk retry, and a **persistent j
 Implemented in `packages/core` as a **pure reducer**, driven by the main-process orchestrator.
 
 ```
-IDLE --start--> STARTING --ok--> LISTENING <--pause/resume--> PAUSED
-                   |                 |
-                  fail              stop
-                   v                 v
-                FAILED           STOPPING   (flush worker, finalize spool)
-                                     |
-                                     v
-                               TRANSCRIBING (chunk jobs, retries)
-                                     |
-                                     v
-                               GENERATING   (LLM note)
-                                     |
-                                     v
-                                  REVIEW --save--> SAVED
-                                     |
-                                     +--discard--> DISCARDED
+IDLE --start--> STARTING --started--> LISTENING <--pause/resume--> PAUSED
+                 |    |                    |                         |
+       startFailed    cancel               +--- stop / captureLost --+
+                 v    v                    v
+            FAILED  DISCARDED          STOPPING   (flush worker, finalize spool)
+                                           |
+                                        stopped
+                                           v
+                                     TRANSCRIBING (chunk jobs, retries)   <-- transcribeFailed / retry
+                                           |
+                                       transcribed
+                                           v
+                                     GENERATING   (LLM note)             <-- generateFailed / retry
+                                           |
+                                       generated
+                                           v
+                                        REVIEW --save--> SAVED
+
+discard: LISTENING, PAUSED, TRANSCRIBING, GENERATING, REVIEW --> DISCARDED
 ```
 
+- The reducer state is `{ state, error }`. Failure events (`startFailed`, `captureLost`, `transcribeFailed`, `generateFailed`) set `error`; every other transition clears it.
+- **Retryable failures stay in place:** a failed transcription or generation keeps its state with `error` set, and must be `retry`-ed before it can complete. **Capture loss is a stop:** `captureLost` goes to `STOPPING` so the audio so far is kept and transcribed. See [ADR 0003](./adr/0003-session-failure-transitions.md).
+- `IDLE` is never persisted; a session row starts in `STARTING`. Terminal states: `SAVED`, `DISCARDED`, `FAILED`.
 - Every transition is **persisted** to the `sessions` table.
 - On launch, the orchestrator scans for sessions not in a terminal state and offers recovery: **resume transcription**, **retry generation**, or **discard**.
 - Failures in `TRANSCRIBING` or `GENERATING` keep the session in a retryable state and **never delete the transcript or spool file until the note is saved**.
@@ -326,11 +332,11 @@ Prompts live in `packages/core/prompts` with a version string. The **prompt vers
 
 ## 10. Data architecture
 
-SQLite through `better-sqlite3` in the main process:
+SQLite through Node's built-in `node:sqlite` in the main process ([ADR 0002](./adr/0002-node-sqlite.md)):
 
-- WAL mode enabled
-- Forward-only SQL migrations applied at startup
-- `better-sqlite3` is a native module, so CI rebuilds it against Electron's runtime
+- WAL mode, `synchronous = FULL`, foreign keys on
+- Forward-only SQL migrations applied at startup, tracked in `PRAGMA user_version`
+- No native module to rebuild: tests and the app run the same code
 
 ### Schema
 
@@ -413,12 +419,23 @@ CREATE TABLE usage_log (
   cost_estimate_usd REAL,
   at INTEGER
 );
+
+CREATE TABLE settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL            -- JSON, validated against SettingsSchema on read
+);
+
+CREATE TABLE secrets (
+  id TEXT PRIMARY KEY,           -- 'deepgram' | 'groq' | 'gemini'
+  ciphertext BLOB NOT NULL,      -- safeStorage-encrypted; plaintext is never stored
+  updated_at INTEGER NOT NULL
+);
 ```
 
 - The FTS table is updated by the repository **inside the same transaction** as the note write.
 - A later migration adds an embeddings table through `sqlite-vec` for semantic search.
 
-**Repository layer:** `NotesRepo`, `SessionsRepo`, `JobsRepo`, `SettingsRepo`, `UsageRepo`. Renderers never see SQL.
+**Repository layer:** `NotesRepo`, `SessionsRepo`, `JobsRepo`, `SettingsRepo`, `UsageRepo`, plus `SecretStore` for API keys. Renderers never see SQL.
 
 ---
 
@@ -661,11 +678,11 @@ The goal for v1 is **depth over breadth**: a few hard problems solved well, in a
 
 ### Phase 1: Core foundation
 
-- [ ] Monorepo: `apps/desktop`, `packages/core`
-- [ ] `packages/core`: types, zod schemas, state machine reducer + unit tests
-- [ ] Main process skeleton: window manager, IPC router with validation, preload bridge
-- [ ] SQLite with migrations, repositories, settings, safeStorage for API keys
-- [ ] Fake providers (`FakeSTT`, `FakeLLM`)
+- [x] Monorepo: `apps/desktop`, `packages/core`
+- [x] `packages/core`: types, zod schemas, state machine reducer + unit tests
+- [x] Main process skeleton: window manager, IPC router with validation, preload bridge
+- [x] SQLite with migrations, repositories, settings, safeStorage for API keys
+- [x] Fake providers (`FakeSTT`, `FakeLLM`)
 
 ### Phase 2: Audio pipeline and transcription
 

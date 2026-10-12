@@ -187,10 +187,10 @@
 
 ## 9. SQL and database
 
-- Raw SQL with `better-sqlite3` prepared statements. **Never build SQL with string concatenation of user input.**
+- Raw SQL with `node:sqlite` prepared statements and bound parameters. **Never build SQL with string concatenation of user input.**
 - SQL keywords uppercase, identifiers snake_case.
 - All DB access goes through repositories (`NotesRepo`, etc.).
-- Multi-step writes in a transaction (`db.transaction(() => { … })`).
+- Multi-step writes in a transaction (`inTransaction(db, () => { … })` from `main/db/transaction.ts`).
 - Migrations: `NNN_description.sql`, forward-only, never edited after merge.
 
 ---
