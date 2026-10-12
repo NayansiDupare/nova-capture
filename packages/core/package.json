@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Pure TypeScript domain: types, zod schemas, state machine, prompts, chunk math. No Electron or Node APIs.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json"
