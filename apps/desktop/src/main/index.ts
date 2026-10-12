@@ -1,8 +1,14 @@
 import { join } from 'node:path';
 
-import { app, BrowserWindow, dialog, session } from 'electron';
+import { app, dialog, ipcMain, safeStorage, session } from 'electron';
 
-const isDev = !app.isPackaged;
+import { openDatabase } from './db/open-database';
+import { SettingsRepo } from './db/settings-repo';
+import { createIpcHandlers } from './ipc/handlers';
+import { registerIpcHandlers } from './ipc/ipc-router';
+import { log } from './log';
+import { SecretStore } from './secrets/secret-store';
+import { WindowManager } from './windows/window-manager';
 
 /** SECURITY.md §3.2: no navigation, no new windows, no webviews, no permissions. */
 function hardenSessionAndContents(): void {
@@ -22,51 +28,46 @@ function hardenSessionAndContents(): void {
   });
 }
 
-async function createMainWindow(): Promise<BrowserWindow> {
-  const win = new BrowserWindow({
-    width: 1100,
-    height: 720,
-    minWidth: 880,
-    minHeight: 600,
-    show: false,
-    title: 'Nova Capture',
-    webPreferences: {
-      preload: join(__dirname, '../preload/main-ui.js'),
-      contextIsolation: true,
-      sandbox: true,
-      nodeIntegration: false,
-      nodeIntegrationInWorker: false,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      experimentalFeatures: false,
-      spellcheck: false,
-      devTools: isDev,
-    },
-  });
-  win.once('ready-to-show', () => {
-    win.show();
-  });
-
-  const devServerUrl = process.env['ELECTRON_RENDERER_URL'];
-  if (isDev && devServerUrl) {
-    await win.loadURL(devServerUrl);
-  } else {
-    await win.loadFile(join(__dirname, '../renderer/index.html'));
-  }
-  return win;
-}
-
 async function start(): Promise<void> {
+  // One instance only: two processes recovering or capturing the same sessions would corrupt state.
+  if (!app.requestSingleInstanceLock()) {
+    app.quit();
+    return;
+  }
+  // SECURITY.md §6: data lives in %APPDATA%/Nova Capture, independent of the package name.
+  app.setPath('userData', join(app.getPath('appData'), 'Nova Capture'));
+
   await app.whenReady();
   hardenSessionAndContents();
-  await createMainWindow();
+
+  const db = openDatabase(join(app.getPath('userData'), 'nova-capture.db'));
+  app.on('will-quit', () => {
+    db.close();
+  });
+
+  const windows = new WindowManager();
+  registerIpcHandlers(
+    ipcMain,
+    createIpcHandlers({
+      settings: new SettingsRepo(db),
+      secrets: new SecretStore(db, safeStorage),
+    }),
+    windows.isTrustedSender,
+  );
+
+  app.on('second-instance', () => {
+    windows.showMainWindow().catch((error: unknown) => {
+      log.error('failed to show main window', { error: String(error) });
+    });
+  });
+  await windows.showMainWindow();
 }
 
 app.on('window-all-closed', () => {
   app.quit();
 });
 
-// No logger yet (electron-log arrives in Phase 6), so fatal startup errors go to a dialog.
+// electron-log arrives in Phase 6; until then fatal startup errors go to a dialog.
 start().catch((error: unknown) => {
   dialog.showErrorBox('Nova Capture failed to start', String(error));
   app.exit(1);
