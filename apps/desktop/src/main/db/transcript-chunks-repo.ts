@@ -55,6 +55,16 @@ export class TranscriptChunksRepo {
       );
   }
 
+  /** The STT providers that transcribed a session, for the note's `stt_provider`. */
+  providers(sessionId: string): string[] {
+    return this.db
+      .prepare(
+        'SELECT DISTINCT provider FROM transcript_chunks WHERE session_id = ? ORDER BY provider',
+      )
+      .all(sessionId)
+      .map((row) => String(row['provider']));
+  }
+
   /** All saved chunks of a session, in chunk order, ready for `assembleTranscript`. */
   listBySession(sessionId: string): TranscribedChunk[] {
     return this.db

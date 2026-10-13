@@ -27,6 +27,7 @@ describe('migrations', () => {
     expect(tableNames(db).sort()).toEqual(
       [
         'jobs',
+        'note_drafts',
         'note_tags',
         'notes',
         'notes_fts',
@@ -65,6 +66,38 @@ describe('migrations', () => {
     ]);
   });
 
+  it('upgrades a real version-2 database to the latest schema and keeps its rows', () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec('PRAGMA foreign_keys = ON');
+    migrate(db, MIGRATIONS.slice(0, 2));
+    db.prepare("INSERT INTO sessions (id, state, started_at) VALUES ('s1', 'GENERATING', 1)").run();
+    db.prepare(
+      `INSERT INTO notes (id, mode, transcript, created_at, updated_at)
+       VALUES ('n0', 'full', 't', 1, 1)`,
+    ).run();
+
+    expect(migrate(db, MIGRATIONS)).toEqual([3]);
+
+    db.prepare(
+      `INSERT INTO note_drafts (session_id, content, ai_model, prompt_version, created_at)
+       VALUES ('s1', '{}', 'm', 'note-v1', 1)`,
+    ).run();
+    expect(db.prepare('SELECT id, uncertain_terms FROM notes').all()).toEqual([
+      { id: 'n0', uncertain_terms: null },
+    ]);
+  });
+
+  it('allows only one note per session', () => {
+    const db = openDatabase(':memory:');
+    db.prepare("INSERT INTO sessions (id, state, started_at) VALUES ('s1', 'REVIEW', 1)").run();
+    const insert = db.prepare(
+      `INSERT INTO notes (id, session_id, mode, transcript, created_at, updated_at)
+       VALUES (?, 's1', 'full', 't', 1, 1)`,
+    );
+    insert.run('n1');
+    expect(() => insert.run('n2')).toThrow(/UNIQUE/);
+  });
+
   it('upgrades a real version-1 database to the latest schema', () => {
     const db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys = ON');
@@ -73,7 +106,7 @@ describe('migrations', () => {
       "INSERT INTO sessions (id, state, started_at) VALUES ('s1', 'TRANSCRIBING', 1)",
     ).run();
 
-    expect(migrate(db, MIGRATIONS)).toEqual([2]);
+    expect(migrate(db, MIGRATIONS)).toEqual([2, 3]);
 
     db.prepare(
       `INSERT INTO transcript_chunks
