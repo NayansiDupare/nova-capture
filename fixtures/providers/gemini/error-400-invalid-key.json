@@ -1,0 +1,8 @@
+{
+  "_note": "Hand-written in Gemini's documented error shape.",
+  "error": {
+    "code": 400,
+    "message": "API key not valid. Please pass a valid API key.",
+    "status": "INVALID_ARGUMENT"
+  }
+}

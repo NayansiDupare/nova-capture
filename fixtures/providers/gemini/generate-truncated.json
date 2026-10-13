@@ -1,0 +1,10 @@
+{
+  "_note": "Hand-written: output cut off at maxOutputTokens, so the JSON is incomplete.",
+  "candidates": [
+    {
+      "content": { "role": "model", "parts": [{ "text": "{\"title\":\"Fourier transform ba" }] },
+      "finishReason": "MAX_TOKENS"
+    }
+  ],
+  "usageMetadata": { "promptTokenCount": 745, "candidatesTokenCount": 8192 }
+}

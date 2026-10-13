@@ -1,0 +1,5 @@
+{
+  "_note": "Hand-written: the prompt was blocked, so there are no candidates.",
+  "promptFeedback": { "blockReason": "SAFETY" },
+  "usageMetadata": { "promptTokenCount": 745 }
+}

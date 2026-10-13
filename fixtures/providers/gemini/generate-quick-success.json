@@ -1,0 +1,23 @@
+{
+  "_note": "Hand-written in Gemini's documented generateContent shape. Synthetic content, no real transcript.",
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "{\"title\":\"Fourier transform basics\",\"gist\":\"The Fourier transform maps a signal from time to frequency.\",\"tags\":[\"signal-processing\",\"math\"],\"language\":\"en\"}"
+          }
+        ]
+      },
+      "finishReason": "STOP"
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 745,
+    "candidatesTokenCount": 82,
+    "thoughtsTokenCount": 120,
+    "totalTokenCount": 947
+  },
+  "modelVersion": "gemini-3.8-flash"
+}

@@ -1,0 +1,13 @@
+{
+  "_note": "Hand-written: valid JSON that misses a required field (gist).",
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [{ "text": "{\"title\":\"Fourier\",\"tags\":[],\"language\":\"en\"}" }]
+      },
+      "finishReason": "STOP"
+    }
+  ],
+  "usageMetadata": { "promptTokenCount": 745, "candidatesTokenCount": 20 }
+}

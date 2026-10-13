@@ -1,0 +1,8 @@
+{
+  "_note": "Hand-written in Gemini's documented error shape.",
+  "error": {
+    "code": 503,
+    "message": "The model is overloaded. Please try again later.",
+    "status": "UNAVAILABLE"
+  }
+}

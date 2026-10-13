@@ -1,0 +1,8 @@
+{
+  "_note": "Hand-written in Gemini's documented error shape.",
+  "error": {
+    "code": 429,
+    "message": "Resource has been exhausted (e.g. check quota).",
+    "status": "RESOURCE_EXHAUSTED"
+  }
+}
