@@ -3,6 +3,10 @@ import { join } from 'node:path';
 import { app, BrowserWindow } from 'electron';
 import type { WebPreferences } from 'electron';
 
+import { IPC_EVENTS } from '@nova/core';
+import type { IpcEvent, IpcEventPayload } from '@nova/core';
+
+import { loadPage } from './load-page';
 import type { InvokeEvent } from '../ipc/ipc-router';
 import { isTrustedSender } from '../ipc/trusted-sender';
 
@@ -58,12 +62,16 @@ export class WindowManager {
       win.show();
     });
 
-    const devServerUrl = process.env['ELECTRON_RENDERER_URL'];
-    if (!app.isPackaged && devServerUrl) {
-      await win.loadURL(devServerUrl);
-    } else {
-      await win.loadFile(join(__dirname, '../renderer/index.html'));
+    await loadPage(win, 'main-ui');
+  }
+
+  /** Sends a validated main → UI event to the main window, if it is open. */
+  send<E extends IpcEvent>(event: E, payload: IpcEventPayload<E>): void {
+    const win = this.mainWindow;
+    if (!win || win.isDestroyed()) {
+      return;
     }
+    win.webContents.send(event, IPC_EVENTS[event].parse(payload));
   }
 
   private trust(win: BrowserWindow): void {

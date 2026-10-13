@@ -8,7 +8,12 @@ import { SessionNotFoundError, SessionsRepo } from './sessions-repo';
 const setup = () => {
   const repo = new SessionsRepo(openDatabase(':memory:'));
   const create = (id: string, startedAt = 1000) =>
-    repo.create({ id, startedAt, captureSource: 'electron-loopback' });
+    repo.create({
+      id,
+      startedAt,
+      captureSource: 'electron-loopback',
+      spoolPath: `/spool/${id}.pcm`,
+    });
   return { repo, create };
 };
 
@@ -23,8 +28,24 @@ describe('SessionsRepo', () => {
       error: null,
       startedAt: 1000,
       captureSource: 'electron-loopback',
+      spoolPath: '/spool/s1.pcm',
+      durationMs: null,
+      speechRatio: null,
     });
     expect(repo.get('s1')).toEqual(created);
+  });
+
+  it('stores the spool analysis', () => {
+    const { repo, create } = setup();
+    create('s1');
+    repo.recordAnalysis('s1', { durationMs: 120_000, speechRatio: 0.75 });
+    expect(repo.get('s1')).toMatchObject({ durationMs: 120_000, speechRatio: 0.75 });
+  });
+
+  it('throws when recording analysis for an unknown session', () => {
+    expect(() => {
+      setup().repo.recordAnalysis('nope', { durationMs: 1, speechRatio: 0 });
+    }).toThrow(SessionNotFoundError);
   });
 
   it('returns undefined for an unknown session', () => {

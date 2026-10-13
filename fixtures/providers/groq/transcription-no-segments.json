@@ -1,0 +1,7 @@
+{
+  "_note": "Hand-written: a reply without a segments array, which the adapter turns into one segment.",
+  "task": "transcribe",
+  "language": "English",
+  "duration": 4.0,
+  "text": " Short answer."
+}

@@ -1,4 +1,7 @@
-import type { IpcRequest, IpcResponse } from '@nova/core';
+import type { IpcEvent, IpcEventPayload, IpcRequest, IpcResponse } from '@nova/core';
+
+/** Stops listening to an event. */
+export type Unsubscribe = () => void;
 
 /**
  * The API the main UI preload exposes as `window.nova`: one narrow function per IPC channel
@@ -12,4 +15,19 @@ export type NovaApi = {
   readonly secrets: {
     set(request: IpcRequest<'secrets:set'>): Promise<IpcResponse<'secrets:set'>>;
   };
+  readonly capture: {
+    start(): Promise<IpcResponse<'capture:start'>>;
+    stop(): Promise<IpcResponse<'capture:stop'>>;
+    pause(): Promise<IpcResponse<'capture:pause'>>;
+    resume(): Promise<IpcResponse<'capture:resume'>>;
+  };
+  readonly sessions: {
+    retry(request: IpcRequest<'sessions:retry'>): Promise<IpcResponse<'sessions:retry'>>;
+    discard(request: IpcRequest<'sessions:discard'>): Promise<IpcResponse<'sessions:discard'>>;
+    transcript(
+      request: IpcRequest<'sessions:transcript'>,
+    ): Promise<IpcResponse<'sessions:transcript'>>;
+  };
+  /** Subscribes to a main → UI event. */
+  on<E extends IpcEvent>(event: E, listener: (payload: IpcEventPayload<E>) => void): Unsubscribe;
 };

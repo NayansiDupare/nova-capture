@@ -1,0 +1,46 @@
+{
+  "_note": "Hand-written in Groq's documented verbose_json shape (OpenAI-compatible). Synthetic lecture text, no personal content. Replace with a sanitized real recording when convenient.",
+  "task": "transcribe",
+  "language": "English",
+  "duration": 30.0,
+  "text": " Today we look at the Fourier transform. It maps a signal from time to frequency.",
+  "segments": [
+    {
+      "id": 0,
+      "seek": 0,
+      "start": 0.0,
+      "end": 3.42,
+      "text": " Today we look at the Fourier transform.",
+      "tokens": [50365, 2692, 321, 574],
+      "temperature": 0.0,
+      "avg_logprob": -0.21,
+      "compression_ratio": 1.12,
+      "no_speech_prob": 0.004
+    },
+    {
+      "id": 1,
+      "seek": 0,
+      "start": 3.42,
+      "end": 7.9,
+      "text": " It maps a signal from time to frequency.",
+      "tokens": [50536, 467, 11317, 257],
+      "temperature": 0.0,
+      "avg_logprob": -0.18,
+      "compression_ratio": 1.12,
+      "no_speech_prob": 0.004
+    },
+    {
+      "id": 2,
+      "seek": 0,
+      "start": 7.9,
+      "end": 8.4,
+      "text": "  ",
+      "tokens": [],
+      "temperature": 0.0,
+      "avg_logprob": -1.2,
+      "compression_ratio": 1.0,
+      "no_speech_prob": 0.9
+    }
+  ],
+  "x_groq": { "id": "req_synthetic_0001" }
+}

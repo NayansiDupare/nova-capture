@@ -165,7 +165,7 @@ Every implementation delivers **16 kHz mono 16-bit PCM frames of about 100 ms**.
 1. Main registers a display-media handler that answers with a screen source and audio set to `loopback`.
 2. The Capture Host window calls `getDisplayMedia`, then stops and discards the video track. Audio constraints must set `echoCancellation`, `noiseSuppression` and `autoGainControl` to `false`: Chrome enables all three by default, even on loopback.
 3. An `AudioContext` created at 16 kHz connects the stream to an `AudioWorklet`. The worklet downmixes to mono, converts float samples to 16-bit integers, and posts frames over a `MessagePort`.
-4. Main hands the other end of that port directly to the Audio Worker, so audio never passes through the main thread.
+4. Main hands the other end of that port directly to the Audio Worker, so audio never passes through the main thread. Frames are posted as copies: the worker's `MessagePortMain` cannot receive a transferred `ArrayBuffer` (it arrives as `null`).
 
 > ⚠️ Verify exact API names, options and platform notes in the Electron docs for the version you pin. This is the **first thing the spike tests**.
 >
@@ -193,18 +193,20 @@ This option gives **per-application isolation**, which removes notification soun
 ## 6. Audio pipeline (Audio Worker)
 
 ```
-frames -> ring buffer -> VAD -> speech/silence labeling -> chunker -> WAV encoder
-              |                                                          |
-              +-------------------> spool file (temp) <------------------+
+during capture:  frames -> bounded buffer -> spool file (fsync every 1 s) ; level meter
+after stop:      spool -> 100 ms levels -> VAD (speech spans) -> chunk plan -> jobs
+per job:         spool byte range -> WAV header + PCM -> STT -> transcript_chunks
 ```
+
+Chunks are planned from the finished spool, not while recording ([ADR 0004](./adr/0004-chunk-after-stop.md)), so recovery after a crash re-runs exactly the same steps.
 
 | Stage | Responsibility |
 |---|---|
-| **Ring buffer** | Absorbs timing jitter. Bounded size. Back-pressure drops are logged, never silent. |
-| **VAD** | Voice-activity detection: a small ONNX model, or an energy-based detector to start. Produces speech and silence spans. |
+| **Buffer** | Bounded queue (60 s) between frames and disk. Back-pressure drops are counted and logged, never silent. |
+| **VAD** | Energy-based on 100 ms RMS levels (threshold -45 dBFS, pauses under 0.5 s bridged, blips under 0.3 s dropped). An ONNX model can replace it later. |
 | **Spool file** | All frames are appended to a temp file, so a crash loses at most a few seconds. |
-| **Chunker** | Targets ~30 s windows, prefers cutting at silence, adds 1–2 s overlap. |
-| **Encoder** | Encodes chunks to WAV or a compressed format the provider accepts. |
+| **Chunk planner** | Targets ~30 s windows, cuts at the silence nearest the target (within 5 s), adds a 1.5 s overlap only when it must cut inside speech, and skips silence between chunks. |
+| **Encoder** | A 44-byte WAV header plus the chunk's raw spool bytes, read on demand per job. |
 | **Metrics** | Level, speech ratio, clipping, music-likelihood heuristic. Fed to quality warnings. |
 
 Silence is trimmed before upload. The **speech ratio** decides the note mode (Full or Quick) and triggers quality warnings, for example when little speech is detected.
@@ -240,7 +242,7 @@ export type ChunkResult = {
 
 - Offsets each chunk's segment timestamps by the chunk start time.
 - Removes duplicated text in the overlap region by aligning the tail of one chunk with the head of the next.
-- Passes the last sentence of the previous chunk as a prompt hint to the next, which improves continuity and keeps technical terms consistent.
+- ~~Passes the last sentence of the previous chunk as a prompt hint~~. Not used while chunks are transcribed in parallel ([ADR 0004](./adr/0004-chunk-after-stop.md)); overlap removal handles continuity.
 - Produces one ordered list of segments: the **canonical transcript**.
 
 ### Providers
@@ -251,7 +253,7 @@ export type ChunkResult = {
 
 ### Resilience
 
-Timeouts, exponential backoff with jitter, per-chunk retry, and a **persistent job** so a transcription pass resumes after an app restart.
+Timeouts (60 s per request), exponential backoff with equal jitter (2 s doubling to 5 min), up to 5 attempts per chunk for retryable errors (network, 408, 429, 5xx), immediate failure for permanent ones (bad key, 4xx), and a **persistent job** per chunk so a transcription pass resumes after an app restart. Each chunk's result is saved as soon as it arrives.
 
 ---
 
@@ -430,12 +432,27 @@ CREATE TABLE secrets (
   ciphertext BLOB NOT NULL,      -- safeStorage-encrypted; plaintext is never stored
   updated_at INTEGER NOT NULL
 );
+
+-- Migration 002 (Phase 2)
+CREATE TABLE transcript_chunks (
+  session_id TEXT NOT NULL REFERENCES sessions(id),
+  chunk_index INTEGER NOT NULL,
+  start_ms INTEGER NOT NULL,
+  end_ms INTEGER NOT NULL,
+  provider TEXT NOT NULL,
+  segments TEXT NOT NULL,        -- JSON, times relative to start_ms
+  language TEXT,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (session_id, chunk_index)
+);
+CREATE INDEX jobs_due ON jobs (status, next_run_at);
+CREATE INDEX jobs_session ON jobs (session_id);
 ```
 
 - The FTS table is updated by the repository **inside the same transaction** as the note write.
 - A later migration adds an embeddings table through `sqlite-vec` for semantic search.
 
-**Repository layer:** `NotesRepo`, `SessionsRepo`, `JobsRepo`, `SettingsRepo`, `UsageRepo`, plus `SecretStore` for API keys. Renderers never see SQL.
+**Repository layer:** `NotesRepo`, `SessionsRepo`, `JobsRepo`, `SettingsRepo`, `UsageRepo`, `TranscriptChunksRepo`, plus `SecretStore` for API keys. Renderers never see SQL.
 
 ---
 
@@ -445,10 +462,12 @@ All channels are defined once in `packages/core` as zod schemas. The preload scr
 
 | Direction | Channel | Purpose |
 |---|---|---|
-| UI → main | `capture:start`, `capture:stop`, `capture:pause` | Intents |
+| UI → main | `capture:start`, `capture:stop`, `capture:pause`, `capture:resume` | Intents. `start` returns the session id (or the running one); failures arrive as `session:state` FAILED |
 | UI → main | `notes:list`, `notes:get`, `notes:search`, `notes:save`, `notes:update`, `notes:delete` | CRUD |
 | UI → main | `settings:get`, `settings:set`, `secrets:set` | Settings. Keys can be written but never read back |
-| UI → main | `sessions:recover` | Resume or discard a stored session |
+| UI → main | `sessions:retry`, `sessions:discard` | Retry failed transcription; discard a session (drops its queued jobs) |
+| UI → main | `sessions:transcript` | The transcript assembled so far (temporary view until notes exist) |
+| UI → main | `sessions:recover` | Recovery screen choices (Phase 6). Until then, interrupted sessions resume automatically at launch |
 | Main → UI | `session:state` | State machine updates |
 | Main → UI | `capture:level` | Audio level for the meter (throttled) |
 | Main → UI | `transcript:partial` | Live text (Phase 6) |
@@ -456,6 +475,8 @@ All channels are defined once in `packages/core` as zod schemas. The preload scr
 | Main → UI | `error:user` | Plain-language errors with an action |
 
 > The audio data path (Capture Host → Audio Worker) is a direct `MessagePort` and is **not** part of the general IPC surface.
+>
+> The Capture Host has two channels of its own (`packages/core/src/ipc/capture-host.ts`): `capture-host:port` (main → host, carries the frame port) and `capture-host:ended` (host → main, validated, accepted only from the Capture Host). Main ↔ Audio Worker messages are validated with `MainToWorkerSchema` / `WorkerToMainSchema`.
 
 ---
 
@@ -686,12 +707,13 @@ The goal for v1 is **depth over breadth**: a few hard problems solved well, in a
 
 ### Phase 2: Audio pipeline and transcription
 
-- [ ] Audio Worker as a utility process; MessagePort from Capture Host
-- [ ] Ring buffer → energy-based VAD → chunker (~30 s, silence cuts, overlap) → WAV encoder
-- [ ] Spool file
-- [ ] `FakeAudioSource` + pipeline tests with fixture WAVs
-- [ ] STT provider adapter, transcript assembler (offsets, overlap de-dup, prompt hint)
-- [ ] Persistent job queue with retries and backoff
+- [x] Audio Worker as a utility process; MessagePort from Capture Host
+- [x] Buffer → spool; after stop: energy-based VAD → chunk planner (~30 s, silence cuts, overlap) → WAV ([ADR 0004](./adr/0004-chunk-after-stop.md))
+- [x] Spool file
+- [x] `FakeAudioSource` + pipeline tests (synthetic signals instead of fixture WAVs)
+- [x] STT provider adapter (Groq), transcript assembler (offsets, overlap de-dup; no prompt hint, see ADR 0004)
+- [x] Persistent job queue with retries and backoff
+- [x] Capture Host window, session orchestrator, capture IPC, developer capture panel
 
 ### Phase 3: AI notes and review
 

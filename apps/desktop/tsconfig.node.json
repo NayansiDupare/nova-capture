@@ -1,9 +1,9 @@
 {
-  // Main process and preload scripts.
+  // Main process, preload scripts and the Audio Worker (utility process).
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2022"],
     "types": ["node"]
   },
-  "include": ["electron.vite.config.ts", "src/main", "src/preload"]
+  "include": ["electron.vite.config.ts", "src/main", "src/preload", "src/worker"]
 }
