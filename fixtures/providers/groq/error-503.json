@@ -1,0 +1,4 @@
+{
+  "_note": "Hand-written in Groq's documented error shape.",
+  "error": { "message": "Service Unavailable", "type": "internal_server_error" }
+}

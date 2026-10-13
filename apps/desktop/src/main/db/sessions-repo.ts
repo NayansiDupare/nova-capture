@@ -13,12 +13,19 @@ const SessionRowSchema = z.object({
   error: z.string().nullable(),
   started_at: z.number(),
   capture_source: z.string().nullable(),
+  spool_path: z.string().nullable(),
+  duration_ms: z.number().nullable(),
+  speech_ratio: z.number().nullable(),
 });
 
 export type SessionRecord = SessionSnapshot & {
   readonly id: string;
   readonly startedAt: number;
   readonly captureSource: string | null;
+  readonly spoolPath: string | null;
+  /** Spool duration and speech share, known once the spool has been analyzed after stop. */
+  readonly durationMs: number | null;
+  readonly speechRatio: number | null;
 };
 
 export class SessionNotFoundError extends Error {
@@ -28,7 +35,8 @@ export class SessionNotFoundError extends Error {
   }
 }
 
-const COLUMNS = 'id, state, error, started_at, capture_source';
+const COLUMNS =
+  'id, state, error, started_at, capture_source, spool_path, duration_ms, speech_ratio';
 
 /**
  * Persists capture sessions. Every state change goes through {@link SessionsRepo.transition},
@@ -38,14 +46,20 @@ export class SessionsRepo {
   constructor(private readonly db: DatabaseSync) {}
 
   /** Records a new session by applying `start`, so it begins in `STARTING`. */
-  create(input: { id: string; startedAt: number; captureSource: string | null }): SessionRecord {
+  create(input: {
+    id: string;
+    startedAt: number;
+    captureSource: string | null;
+    spoolPath: string | null;
+  }): SessionRecord {
     const { state, error } = reduce(INITIAL_SNAPSHOT, { type: 'start' });
     this.db
       .prepare(
-        'INSERT INTO sessions (id, state, error, started_at, capture_source) VALUES (?, ?, ?, ?, ?)',
+        `INSERT INTO sessions (id, state, error, started_at, capture_source, spool_path)
+         VALUES (?, ?, ?, ?, ?, ?)`,
       )
-      .run(input.id, state, error, input.startedAt, input.captureSource);
-    return { ...input, state, error };
+      .run(input.id, state, error, input.startedAt, input.captureSource, input.spoolPath);
+    return { ...input, state, error, durationMs: null, speechRatio: null };
   }
 
   get(id: string): SessionRecord | undefined {
@@ -73,6 +87,16 @@ export class SessionsRepo {
     });
   }
 
+  /** Stores the analysis of the finished spool. */
+  recordAnalysis(id: string, analysis: { durationMs: number; speechRatio: number }): void {
+    const { changes } = this.db
+      .prepare('UPDATE sessions SET duration_ms = ?, speech_ratio = ? WHERE id = ?')
+      .run(analysis.durationMs, analysis.speechRatio, id);
+    if (changes === 0) {
+      throw new SessionNotFoundError(id);
+    }
+  }
+
   /** Sessions the app did not finish, oldest first. Offered for recovery at launch. */
   listUnfinished(): SessionRecord[] {
     const placeholders = TERMINAL_STATES.map(() => '?').join(', ');
@@ -93,5 +117,8 @@ function toRecord(row: unknown): SessionRecord {
     error: parsed.error,
     startedAt: parsed.started_at,
     captureSource: parsed.capture_source,
+    spoolPath: parsed.spool_path,
+    durationMs: parsed.duration_ms,
+    speechRatio: parsed.speech_ratio,
   };
 }

@@ -35,6 +35,7 @@ describe('migrations', () => {
         'sessions',
         'settings',
         'tags',
+        'transcript_chunks',
         'usage_log',
       ].sort(),
     );
@@ -62,6 +63,24 @@ describe('migrations', () => {
     expect(db.prepare('SELECT id, test_flag FROM sessions').all()).toEqual([
       { id: 's1', test_flag: null },
     ]);
+  });
+
+  it('upgrades a real version-1 database to the latest schema', () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec('PRAGMA foreign_keys = ON');
+    migrate(db, MIGRATIONS.slice(0, 1));
+    db.prepare(
+      "INSERT INTO sessions (id, state, started_at) VALUES ('s1', 'TRANSCRIBING', 1)",
+    ).run();
+
+    expect(migrate(db, MIGRATIONS)).toEqual([2]);
+
+    db.prepare(
+      `INSERT INTO transcript_chunks
+         (session_id, chunk_index, start_ms, end_ms, provider, segments, created_at)
+       VALUES ('s1', 0, 0, 30000, 'groq', '[]', 1)`,
+    ).run();
+    expect(db.prepare('SELECT count(*) AS n FROM transcript_chunks').get()).toEqual({ n: 1 });
   });
 
   it('rolls back a failing migration and stays at the last good version', () => {

@@ -1,0 +1,8 @@
+{
+  "_note": "Hand-written in Groq's documented error shape.",
+  "error": {
+    "message": "Rate limit reached for model whisper-large-v3-turbo. Please try again in 7.5s.",
+    "type": "tokens",
+    "code": "rate_limit_exceeded"
+  }
+}
