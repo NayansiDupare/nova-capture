@@ -1,0 +1,71 @@
+/* Design tokens (DESIGN_SYSTEM.md §2.3, §4). Components use these variables only, never raw values. */
+:root {
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --surface-2: #f0f1f3;
+  --border: #e2e4e8;
+  --text: #14161a;
+  --text-muted: #5b6170;
+  --text-subtle: #8a909c;
+  --primary: #5b5bd6;
+  --primary-fg: #ffffff;
+  --recording: #e5484d;
+  --paused: #f5a524;
+  --processing: #0091ff;
+  --success: #30a46c;
+  --warning: #f5a524;
+  --danger: #e5484d;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 9999px;
+
+  --font-sans: Inter, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #0f1115;
+    --surface: #171a21;
+    --surface-2: #1e222b;
+    --border: #2a2f3a;
+    --text: #e8eaee;
+    --text-muted: #9aa1ae;
+    --text-subtle: #6b7280;
+    --primary: #8b8bf5;
+    --primary-fg: #0f1115;
+    --recording: #ff6369;
+    --paused: #ffb84d;
+    --processing: #52a9ff;
+    --success: #4cc38a;
+    --warning: #ffb84d;
+    --danger: #ff6369;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #0f1115;
+  --surface: #171a21;
+  --surface-2: #1e222b;
+  --border: #2a2f3a;
+  --text: #e8eaee;
+  --text-muted: #9aa1ae;
+  --text-subtle: #6b7280;
+  --primary: #8b8bf5;
+  --primary-fg: #0f1115;
+  --recording: #ff6369;
+  --paused: #ffb84d;
+  --processing: #52a9ff;
+  --success: #4cc38a;
+  --warning: #ffb84d;
+  --danger: #ff6369;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 15px / 24px var(--font-sans);
+}

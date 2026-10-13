@@ -26,20 +26,33 @@ export default defineConfig({
     build: {
       // @nova/core ships TypeScript source, so it must be bundled rather than required at runtime.
       externalizeDeps: { exclude: ['@nova/core'] },
-      rollupOptions: { input: { index: resolve('src/main/index.ts') } },
+      rollupOptions: {
+        input: { index: resolve('src/main/index.ts'), worker: resolve('src/worker/index.ts') },
+      },
     },
   },
   preload: {
     build: {
       externalizeDeps: { exclude: ['@nova/core'] },
-      rollupOptions: { input: { 'main-ui': resolve('src/preload/main-ui.ts') } },
+      rollupOptions: {
+        input: {
+          'main-ui': resolve('src/preload/main-ui.ts'),
+          'capture-host': resolve('src/preload/capture-host.ts'),
+        },
+      },
     },
   },
   renderer: {
-    root: resolve('src/renderer/main-ui'),
+    // Two pages: the React main UI and the framework-free Capture Host (ARCHITECTURE.md §3).
+    root: resolve('src/renderer'),
     plugins: [react(), relaxCspInDev()],
     build: {
-      rollupOptions: { input: resolve('src/renderer/main-ui/index.html') },
+      rollupOptions: {
+        input: {
+          'main-ui': resolve('src/renderer/main-ui/index.html'),
+          'capture-host': resolve('src/renderer/capture-host/index.html'),
+        },
+      },
     },
   },
 });

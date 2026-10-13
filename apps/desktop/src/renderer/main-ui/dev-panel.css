@@ -1,0 +1,87 @@
+/* Temporary Phase 2 developer panel. Tokens only (DESIGN_SYSTEM.md §2). */
+.dev-panel {
+  max-width: 72ch;
+  margin: 24px;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.dev-panel h2 {
+  margin: 0 0 16px;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.dev-panel__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.dev-panel__rec-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: var(--recording);
+}
+
+.dev-panel__meter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.dev-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.dev-panel__actions button {
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.dev-panel__actions button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.dev-panel__actions button:disabled {
+  color: var(--text-subtle);
+  cursor: default;
+}
+
+.dev-panel__actions .dev-panel__danger:not(:disabled) {
+  color: var(--danger);
+}
+
+.dev-panel__error {
+  color: var(--danger);
+}
+
+.dev-panel__transcript {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.dev-panel__transcript li {
+  margin-bottom: 8px;
+}
+
+.dev-panel__time {
+  color: var(--text-muted);
+  font: 500 13px / 20px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}

@@ -7,6 +7,7 @@ import { openDatabase } from '../db/open-database';
 import { SettingsRepo } from '../db/settings-repo';
 import { log } from '../log';
 import { createIpcHandlers } from './handlers';
+import type { CaptureControl } from './handlers';
 import { IpcRequestError, registerIpcHandlers } from './ipc-router';
 import type { InvokeEvent } from './ipc-router';
 import { isTrustedSender } from './trusted-sender';
@@ -24,13 +25,41 @@ const encryptor: Encryptor = {
   decryptString: (encrypted) => Buffer.from(encrypted).reverse().toString('utf8'),
 };
 
+/** Records the intents the UI sends; the real orchestrator has its own tests. */
+const fakeCapture = () => {
+  const calls: string[] = [];
+  const capture: CaptureControl = {
+    start: () => {
+      calls.push('start');
+      return Promise.resolve('s1');
+    },
+    stop: () => {
+      calls.push('stop');
+      return Promise.resolve();
+    },
+    pause: () => calls.push('pause'),
+    resume: () => calls.push('resume'),
+    retry: (id) => {
+      calls.push(`retry ${id}`);
+      return Promise.resolve();
+    },
+    discard: (id) => {
+      calls.push(`discard ${id}`);
+      return Promise.resolve();
+    },
+    transcript: () => [{ startMs: 0, endMs: 1000, text: 'Hello class.' }],
+  };
+  return { capture, calls };
+};
+
 const setup = () => {
   const db = openDatabase(':memory:');
   const secrets = new SecretStore(db, encryptor);
+  const { capture, calls } = fakeCapture();
   const listeners = new Map<string, Listener>();
   registerIpcHandlers(
     { handle: (channel, listener) => listeners.set(channel, listener) },
-    createIpcHandlers({ settings: new SettingsRepo(db), secrets }),
+    createIpcHandlers({ settings: new SettingsRepo(db), secrets, capture }),
     (event) => isTrustedSender(event, new Set([TRUSTED_ID])),
   );
   const invoke = (channel: string, event: InvokeEvent, ...args: unknown[]) => {
@@ -38,7 +67,7 @@ const setup = () => {
     if (!listener) throw new Error(`No handler for ${channel}`);
     return Promise.resolve(listener(event, ...args));
   };
-  return { listeners, secrets, invoke };
+  return { listeners, secrets, invoke, calls };
 };
 
 describe('IPC router', () => {
@@ -101,14 +130,48 @@ describe('IPC router', () => {
     await expect(invoke('settings:get', event)).rejects.toThrow(/untrusted sender/);
   });
 
+  it('routes capture and session intents to the orchestrator', async () => {
+    const { invoke, calls } = setup();
+    await expect(invoke('capture:start', fromMainWindow)).resolves.toEqual({ sessionId: 's1' });
+    await expect(invoke('capture:pause', fromMainWindow)).resolves.toEqual({});
+    await expect(invoke('capture:resume', fromMainWindow)).resolves.toEqual({});
+    await expect(invoke('capture:stop', fromMainWindow)).resolves.toEqual({});
+    await invoke('sessions:retry', fromMainWindow, { sessionId: 's1' });
+    await invoke('sessions:discard', fromMainWindow, { sessionId: 's1' });
+    expect(calls).toEqual(['start', 'pause', 'resume', 'stop', 'retry s1', 'discard s1']);
+  });
+
+  it('returns the transcript for a session', async () => {
+    const { invoke } = setup();
+    await expect(
+      invoke('sessions:transcript', fromMainWindow, { sessionId: 's1' }),
+    ).resolves.toEqual({
+      segments: [{ startMs: 0, endMs: 1000, text: 'Hello class.' }],
+    });
+  });
+
+  it.each([
+    ['a missing session id', 'sessions:retry', {}],
+    ['an empty session id', 'sessions:discard', { sessionId: '' }],
+    ['a payload on capture:start', 'capture:start', { force: true }],
+  ])('rejects %s', async (_label, channel, payload) => {
+    const { invoke, calls } = setup();
+    await expect(invoke(channel, fromMainWindow, payload)).rejects.toThrow(/invalid payload/);
+    expect(calls).toEqual([]);
+  });
+
   it('refuses to send a reply that breaks the response schema', async () => {
+    const db = openDatabase(':memory:');
     const listeners = new Map<string, Listener>();
     registerIpcHandlers(
       { handle: (channel, listener) => listeners.set(channel, listener) },
       {
+        ...createIpcHandlers({
+          settings: new SettingsRepo(db),
+          secrets: new SecretStore(db, encryptor),
+          capture: fakeCapture().capture,
+        }),
         'settings:get': () => ({ ...DEFAULT_SETTINGS, apiKey: 'oops' }),
-        'settings:set': () => DEFAULT_SETTINGS,
-        'secrets:set': () => ({ ok: true }),
       },
       () => true,
     );
