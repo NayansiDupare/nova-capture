@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { NoteDraftSchema, NoteEditsSchema } from '../notes/note';
 import { SessionStateSchema } from '../session/session-machine';
 import { SecretIdSchema, SettingsPatchSchema, SettingsSchema } from '../settings/settings';
 
@@ -53,13 +54,26 @@ export const IPC_CHANNELS = {
   'capture:stop': { request: z.undefined(), response: EmptySchema },
   'capture:pause': { request: z.undefined(), response: EmptySchema },
   'capture:resume': { request: z.undefined(), response: EmptySchema },
-  /** Re-runs failed transcription jobs. */
+  /** Re-runs a failed transcription or note generation. */
   'sessions:retry': { request: SessionRefSchema, response: EmptySchema },
   'sessions:discard': { request: SessionRefSchema, response: EmptySchema },
-  /** The transcript assembled so far. Temporary view until notes exist (Phase 3). */
+  /** The transcript assembled so far. The Review screen shows it next to the note. */
   'sessions:transcript': {
     request: SessionRefSchema,
     response: z.strictObject({ segments: z.array(TranscriptSegmentSchema) }),
+  },
+  /** The generated note waiting for review, or null when the session has none (yet). */
+  'notes:draft': {
+    request: SessionRefSchema,
+    response: z.strictObject({ draft: NoteDraftSchema.nullable() }),
+  },
+  /**
+   * Saves the reviewed note and moves the session to SAVED. Mode, language and model come
+   * from the stored draft, never from the renderer.
+   */
+  'notes:save': {
+    request: z.strictObject({ sessionId: SessionIdSchema, note: NoteEditsSchema }),
+    response: z.strictObject({ noteId: z.string().min(1) }),
   },
 } as const satisfies Record<string, { request: z.ZodType; response: z.ZodType }>;
 

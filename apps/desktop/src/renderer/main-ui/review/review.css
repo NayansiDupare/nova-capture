@@ -1,0 +1,228 @@
+/* Review screen (DESIGN_SYSTEM.md §9: two panes). Tokens only (§2, §4). */
+.review {
+  margin: 24px;
+}
+
+.review__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin-bottom: 16px;
+}
+
+.review__header h2 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+}
+
+.review__header p {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.review__badge {
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font: 500 12px / 20px var(--font-sans);
+}
+
+.review__panes {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1024px) {
+  .review__panes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.review__pane {
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.review__pane h3,
+.review__form legend {
+  margin: 0 0 8px;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+}
+
+.review__form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 72ch;
+}
+
+.review__form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-weight: 600;
+}
+
+.review__form fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.review__form input,
+.review__form textarea {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font: 400 15px / 24px var(--font-sans);
+  resize: vertical;
+}
+
+.review__form button,
+.review__chip {
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.review button:focus-visible,
+.review input:focus-visible,
+.review textarea:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.review button:disabled {
+  color: var(--text-subtle);
+  cursor: default;
+}
+
+.review__form .review__primary:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-fg);
+}
+
+.review__form .review__danger {
+  color: var(--danger);
+}
+
+.review__form .review__ghost {
+  margin-left: auto;
+  padding: 0 8px;
+  border-color: transparent;
+  background: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.review__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.review__key-points {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.review__key-point {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.review__key-point-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.review__chip {
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  font: 500 13px / 20px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.review__flag {
+  padding: 0 8px;
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font: 500 12px / 20px var(--font-sans);
+}
+
+.review__uncertain {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.review__uncertain li {
+  text-decoration: underline dotted var(--warning);
+  text-underline-offset: 4px;
+}
+
+.review__muted {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.review__error {
+  margin: 0;
+  color: var(--danger);
+}
+
+.review__transcript {
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+
+.review__transcript ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.review__transcript li {
+  margin-bottom: 8px;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+}
+
+.review__segment--highlight {
+  background: var(--surface-2);
+  box-shadow: inset 2px 0 0 var(--primary);
+}
+
+.review__time {
+  color: var(--text-muted);
+  font: 500 13px / 20px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}

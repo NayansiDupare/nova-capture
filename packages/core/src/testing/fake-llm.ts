@@ -13,6 +13,7 @@ export const FAKE_LLM_USAGE: LlmUsage = { inputTokens: 100, outputTokens: 50, co
  */
 export class FakeLLM implements LLMProvider {
   readonly id = 'fake-llm';
+  readonly model = 'fake-llm-1';
   readonly calls: StructuredRequest<unknown>[] = [];
   private readonly script: FakeLlmStep[];
 
@@ -36,7 +37,7 @@ export class FakeLLM implements LLMProvider {
     }
     const parsed = req.schema.safeParse(step.output);
     if (!parsed.success) {
-      return Promise.reject(new InvalidOutputError(this.id, parsed.error.issues));
+      return Promise.reject(new InvalidOutputError(this.id, parsed.error.issues, FAKE_LLM_USAGE));
     }
     return Promise.resolve({ data: parsed.data, usage: FAKE_LLM_USAGE });
   }

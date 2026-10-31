@@ -12,11 +12,13 @@ import {
 } from 'electron';
 import type { MessagePortMain } from 'electron';
 
-import { CAPTURE_HOST_CHANNELS, CaptureHostEndedSchema, ProviderError } from '@nova/core';
+import { CAPTURE_HOST_CHANNELS, CaptureHostEndedSchema } from '@nova/core';
 
 import { CaptureHostWindow } from './capture/capture-host-window';
 import { WorkerHost } from './capture/worker-host';
 import { JobsRepo } from './db/jobs-repo';
+import { NoteDraftsRepo } from './db/note-drafts-repo';
+import { NotesRepo } from './db/notes-repo';
 import { openDatabase } from './db/open-database';
 import { SessionsRepo } from './db/sessions-repo';
 import { SettingsRepo } from './db/settings-repo';
@@ -24,9 +26,12 @@ import { TranscriptChunksRepo } from './db/transcript-chunks-repo';
 import { UsageRepo } from './db/usage-repo';
 import { createIpcHandlers } from './ipc/handlers';
 import { registerIpcHandlers } from './ipc/ipc-router';
+import { createGenerateNoteHandler } from './jobs/generate-note';
 import { JobRunner } from './jobs/job-runner';
 import { createTranscribeChunkHandler } from './jobs/transcribe-chunk';
 import { log } from './log';
+import { createNoteSaver } from './notes/save-note';
+import { createLlmProvider } from './providers/llm-registry';
 import { createSttProvider } from './providers/stt-registry';
 import { SecretStore } from './secrets/secret-store';
 import { SessionOrchestrator } from './session/orchestrator';
@@ -73,7 +78,11 @@ async function start(): Promise<void> {
   const jobs = new JobsRepo(db);
   const chunks = new TranscriptChunksRepo(db);
   const usage = new UsageRepo(db);
+  const drafts = new NoteDraftsRepo(db);
+  const notes = new NotesRepo(db);
   const windows = new WindowManager();
+  // Read on each use, so a vocabulary change applies to the next chunk or note (ADR 0006).
+  const getVocabulary = () => settings.get().vocabulary;
 
   // Set below; the worker host's callbacks only fire after a capture starts.
   const ref: { orchestrator?: SessionOrchestrator<MessagePortMain> } = {};
@@ -91,6 +100,17 @@ async function start(): Promise<void> {
     sessions,
     jobs,
     chunks,
+    drafts,
+    saveNote: createNoteSaver({
+      db,
+      sessions,
+      drafts,
+      notes,
+      chunks,
+      newId: randomUUID,
+      now: Date.now,
+      getVocabulary,
+    }),
     worker: workerHost,
     captureHost,
     createFramePorts: () => {
@@ -114,9 +134,15 @@ async function start(): Promise<void> {
         chunks,
         usage,
         getProvider: () => createSttProvider(settings.get().sttProvider, secrets),
+        getVocabulary,
       }),
-      generate_note: () =>
-        Promise.reject(new ProviderError('Note generation arrives in Phase 3', 'llm', false)),
+      generate_note: createGenerateNoteHandler({
+        chunks,
+        drafts,
+        usage,
+        getProvider: () => createLlmProvider(settings.get().llmProvider, secrets),
+        getVocabulary,
+      }),
     },
     onSettled: (job, outcome) => {
       sessionOrchestrator.onJobSettled(job, outcome);

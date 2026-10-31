@@ -31,7 +31,7 @@ export type ChunkResult = {
 
 export type TranscribeOptions = {
   readonly language?: string;
-  /** Last sentence of the previous chunk, for continuity. */
+  /** Spelling hint for the model, built from the user's vocabulary (ADR 0006). */
   readonly prompt?: string;
   readonly signal?: CancelSignal;
 };
@@ -68,6 +68,8 @@ export type StructuredRequest<T> = {
  */
 export interface LLMProvider {
   readonly id: string;
+  /** The model behind `id`, stored on each note (ARCHITECTURE.md §9). */
+  readonly model: string;
   generateStructured<T>(req: StructuredRequest<T>): Promise<{ data: T; usage: LlmUsage }>;
 }
 
@@ -84,11 +86,15 @@ export class ProviderError extends Error {
   }
 }
 
-/** The LLM answered, but not in the requested shape. The caller may make one repair call. */
+/**
+ * The LLM answered, but not in the requested shape. The caller may make one repair call.
+ * `usage` is set when the provider reported it: the failed call was still billed.
+ */
 export class InvalidOutputError extends Error {
   constructor(
     readonly provider: string,
     readonly issues: readonly z.core.$ZodIssue[],
+    readonly usage?: LlmUsage,
   ) {
     super(`${provider} returned output that does not match the schema`);
     this.name = 'InvalidOutputError';

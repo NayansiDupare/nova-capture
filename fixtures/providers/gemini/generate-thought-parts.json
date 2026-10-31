@@ -1,0 +1,18 @@
+{
+  "_note": "Hand-written: a thought summary part before the answer part. Synthetic content.",
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          { "text": "Planning the note.", "thought": true },
+          {
+            "text": "{\"title\":\"Fourier\",\"gist\":\"Time to frequency.\",\"tags\":[],\"language\":\"en\"}"
+          }
+        ]
+      },
+      "finishReason": "STOP"
+    }
+  ],
+  "usageMetadata": { "promptTokenCount": 10, "candidatesTokenCount": 5 }
+}

@@ -28,6 +28,10 @@ export type NovaApi = {
       request: IpcRequest<'sessions:transcript'>,
     ): Promise<IpcResponse<'sessions:transcript'>>;
   };
+  readonly notes: {
+    draft(request: IpcRequest<'notes:draft'>): Promise<IpcResponse<'notes:draft'>>;
+    save(request: IpcRequest<'notes:save'>): Promise<IpcResponse<'notes:save'>>;
+  };
   /** Subscribes to a main → UI event. */
   on<E extends IpcEvent>(event: E, listener: (payload: IpcEventPayload<E>) => void): Unsubscribe;
 };

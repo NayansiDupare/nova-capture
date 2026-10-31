@@ -18,6 +18,17 @@ export type JobRunnerOptions = {
   readonly onSettled?: (job: Job, outcome: JobOutcome) => void;
 };
 
+/**
+ * A failure that retrying cannot fix, such as no speech to write a note from, or a note that
+ * stayed invalid after the repair call. The job fails at once and waits for a manual retry.
+ */
+export class PermanentJobError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PermanentJobError';
+  }
+}
+
 export const DEFAULT_CONCURRENCY = 3;
 export const DEFAULT_MAX_ATTEMPTS = 5;
 
@@ -78,7 +89,8 @@ export class JobRunner {
       const attempts = job.attempts + 1;
       const message = error instanceof Error ? error.message : String(error);
       // Unknown errors (file read, DB) are retried too: bounded, and they cost nothing.
-      const isRetryable = error instanceof ProviderError ? error.retryable : true;
+      const isRetryable =
+        error instanceof ProviderError ? error.retryable : !(error instanceof PermanentJobError);
       const retryAt =
         isRetryable && attempts < this.maxAttempts
           ? this.now() + backoffDelayMs(attempts, { ...DEFAULT_BACKOFF, random: this.random })
@@ -90,6 +102,8 @@ export class JobRunner {
         sessionId: job.sessionId,
         attempts,
         willRetry: retryAt !== null,
+        // Provider and job errors describe the request or file, never transcript text (§6).
+        error: message,
       });
       this.settle(job, retryAt === null ? 'failed' : 'retrying');
     } finally {

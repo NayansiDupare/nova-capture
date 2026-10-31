@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MockInstance } from 'vitest';
 
 import { DEFAULT_SETTINGS, IPC_CHANNELS } from '@nova/core';
+import type { NoteDraft } from '@nova/core';
 
 import { openDatabase } from '../db/open-database';
 import { SettingsRepo } from '../db/settings-repo';
@@ -23,6 +24,22 @@ const encryptor: Encryptor = {
   isEncryptionAvailable: () => true,
   encryptString: (plainText) => Buffer.from(plainText, 'utf8').reverse(),
   decryptString: (encrypted) => Buffer.from(encrypted).reverse().toString('utf8'),
+};
+
+const DRAFT: NoteDraft = {
+  sessionId: 's1',
+  content: {
+    mode: 'quick',
+    title: 'Fourier',
+    summary: 'Time to frequency.',
+    keyPoints: [],
+    tags: ['math'],
+    language: 'en',
+    uncertainTerms: [],
+  },
+  aiModel: 'fake-llm-1',
+  promptVersion: 'note-v1',
+  createdAt: 1,
 };
 
 /** Records the intents the UI sends; the real orchestrator has its own tests. */
@@ -48,6 +65,11 @@ const fakeCapture = () => {
       return Promise.resolve();
     },
     transcript: () => [{ startMs: 0, endMs: 1000, text: 'Hello class.' }],
+    draft: (id) => (id === 's1' ? DRAFT : null),
+    save: (id, edits) => {
+      calls.push(`save ${id} ${edits.title}`);
+      return 'n1';
+    },
   };
   return { capture, calls };
 };
@@ -150,7 +172,27 @@ describe('IPC router', () => {
     });
   });
 
+  it('returns the note draft, or null when there is none', async () => {
+    const { invoke } = setup();
+    await expect(invoke('notes:draft', fromMainWindow, { sessionId: 's1' })).resolves.toEqual({
+      draft: DRAFT,
+    });
+    await expect(invoke('notes:draft', fromMainWindow, { sessionId: 's2' })).resolves.toEqual({
+      draft: null,
+    });
+  });
+
+  it('saves the edited note with trimmed text and returns its id', async () => {
+    const { invoke, calls } = setup();
+    const note = { title: '  Fourier  ', summary: 'S', keyPoints: [], tags: ['math'] };
+    await expect(invoke('notes:save', fromMainWindow, { sessionId: 's1', note })).resolves.toEqual({
+      noteId: 'n1',
+    });
+    expect(calls).toEqual(['save s1 Fourier']);
+  });
+
   it.each([
+    ['a note with a model field', 'notes:save', { sessionId: 's1', note: { aiModel: 'x' } }],
     ['a missing session id', 'sessions:retry', {}],
     ['an empty session id', 'sessions:discard', { sessionId: '' }],
     ['a payload on capture:start', 'capture:start', { force: true }],

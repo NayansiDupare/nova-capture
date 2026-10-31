@@ -2,19 +2,23 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { IpcEventPayload, MainToWorker, SpeechToTextProvider } from '@nova/core';
-import { FakeAudioSource, FakeSTT } from '@nova/core/testing';
+import type { IpcEventPayload, LLMProvider, MainToWorker, SpeechToTextProvider } from '@nova/core';
+import { FakeAudioSource, FakeLLM, FakeSTT } from '@nova/core/testing';
 
 import { AudioWorker } from '../../worker/audio-worker';
 import { WorkerHost } from '../capture/worker-host';
 import type { WorkerProcess } from '../capture/worker-host';
 import { JobsRepo } from '../db/jobs-repo';
+import { NoteDraftsRepo } from '../db/note-drafts-repo';
+import { NotesRepo } from '../db/notes-repo';
 import { openDatabase } from '../db/open-database';
 import { SessionsRepo } from '../db/sessions-repo';
 import { TranscriptChunksRepo } from '../db/transcript-chunks-repo';
 import { UsageRepo } from '../db/usage-repo';
+import { createGenerateNoteHandler } from '../jobs/generate-note';
 import { JobRunner } from '../jobs/job-runner';
 import { createTranscribeChunkHandler } from '../jobs/transcribe-chunk';
+import { createNoteSaver } from '../notes/save-note';
 import { SessionOrchestrator } from '../session/orchestrator';
 import type { CaptureHostControl } from '../session/orchestrator';
 
@@ -118,6 +122,18 @@ export class FakeCaptureHost implements CaptureHostControl<FakeFramePort> {
   }
 }
 
+/** A valid quick note, as the LLM would return it. */
+export const QUICK_NOTE_OUTPUT = {
+  title: 'Fourier basics',
+  gist: 'Time to frequency.',
+  tags: ['Math'],
+  language: 'en',
+};
+
+/** An LLM that answers every call with {@link QUICK_NOTE_OUTPUT}. */
+export const quickNoteLlm = (calls = 20) =>
+  new FakeLLM(Array.from({ length: calls }, () => ({ output: QUICK_NOTE_OUTPUT })));
+
 /** Lets microtask-delivered worker replies and fs work settle. */
 export const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
@@ -131,7 +147,7 @@ export async function waitFor(condition: () => boolean, timeoutMs = 3000): Promi
 }
 
 export function createCaptureHarness(
-  options: { stt?: SpeechToTextProvider; flushIntervalMs?: number } = {},
+  options: { stt?: SpeechToTextProvider; llm?: LLMProvider; flushIntervalMs?: number } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'nova-orchestrator-'));
   const db = openDatabase(':memory:');
@@ -139,11 +155,15 @@ export function createCaptureHarness(
   const jobs = new JobsRepo(db);
   const chunks = new TranscriptChunksRepo(db);
   const usage = new UsageRepo(db);
+  const drafts = new NoteDraftsRepo(db);
+  const notes = new NotesRepo(db);
   const captureHost = new FakeCaptureHost();
   const processes: InProcessWorker[] = [];
   const events: IpcEventPayload<'session:state'>[] = [];
   let stt = options.stt ?? new FakeSTT();
+  let llm = options.llm ?? quickNoteLlm();
   let nextId = 0;
+  let nextNoteId = 0;
   let clock = 1_000_000;
 
   // The worker host is created first, so its callback reaches the orchestrator through a ref.
@@ -163,6 +183,16 @@ export function createCaptureHarness(
     sessions,
     jobs,
     chunks,
+    drafts,
+    saveNote: createNoteSaver({
+      db,
+      sessions,
+      drafts,
+      notes,
+      chunks,
+      newId: () => `n${String(++nextNoteId)}`,
+      now: () => clock,
+    }),
     worker: workerHost,
     captureHost,
     createFramePorts: () => {
@@ -185,7 +215,13 @@ export function createCaptureHarness(
         getProvider: () => stt,
         now: () => clock,
       }),
-      generate_note: () => Promise.resolve(),
+      generate_note: createGenerateNoteHandler({
+        chunks,
+        drafts,
+        usage,
+        getProvider: () => llm,
+        now: () => clock,
+      }),
     },
     now: () => clock,
     random: () => 0,
@@ -211,6 +247,9 @@ export function createCaptureHarness(
     sessions,
     jobs,
     chunks,
+    drafts,
+    notes,
+    usage,
     captureHost,
     processes,
     events,
@@ -220,6 +259,9 @@ export function createCaptureHarness(
       events.filter((e) => e.sessionId === sessionId).map((e) => e.state),
     useStt: (next: SpeechToTextProvider) => {
       stt = next;
+    },
+    useLlm: (next: LLMProvider) => {
+      llm = next;
     },
     cleanup: () => {
       for (const process of processes) process.worker.stop();
