@@ -76,7 +76,7 @@ describe('migrations', () => {
        VALUES ('n0', 'full', 't', 1, 1)`,
     ).run();
 
-    expect(migrate(db, MIGRATIONS)).toEqual([3]);
+    expect(migrate(db, MIGRATIONS)).toEqual([3, 4]);
 
     db.prepare(
       `INSERT INTO note_drafts (session_id, content, ai_model, prompt_version, created_at)
@@ -85,6 +85,25 @@ describe('migrations', () => {
     expect(db.prepare('SELECT id, uncertain_terms FROM notes').all()).toEqual([
       { id: 'n0', uncertain_terms: null },
     ]);
+  });
+
+  it('upgrades a real version-3 database, keeps its notes and adds the Library indexes', () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec('PRAGMA foreign_keys = ON');
+    migrate(db, MIGRATIONS.slice(0, 3));
+    db.prepare(
+      `INSERT INTO notes (id, mode, transcript, favorite, created_at, updated_at)
+       VALUES ('n0', 'full', 't', 1, 1, 1)`,
+    ).run();
+
+    expect(migrate(db, MIGRATIONS)).toEqual([4]);
+
+    expect(db.prepare('SELECT id, favorite FROM notes').all()).toEqual([{ id: 'n0', favorite: 1 }]);
+    const indexes = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'notes'")
+      .all()
+      .map((row) => row['name']);
+    expect(indexes).toEqual(expect.arrayContaining(['notes_newest', 'notes_favorites']));
   });
 
   it('allows only one note per session', () => {
@@ -106,7 +125,7 @@ describe('migrations', () => {
       "INSERT INTO sessions (id, state, started_at) VALUES ('s1', 'TRANSCRIBING', 1)",
     ).run();
 
-    expect(migrate(db, MIGRATIONS)).toEqual([2, 3]);
+    expect(migrate(db, MIGRATIONS)).toEqual([2, 3, 4]);
 
     db.prepare(
       `INSERT INTO transcript_chunks
