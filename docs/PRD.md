@@ -180,7 +180,7 @@ Watching a video
 ## 12. Open questions
 
 - [x] Which two STT providers to compare in the spike? **Deepgram (nova-3) and Groq (Whisper large-v3 turbo)**, see `spikes/stt-llm/`. Winner picked after the spike.
-- [x] Which LLM provider and model for v1? **Google Gemini** (`gemini-3.8-flash` to start; confirm after the spike).
+- [x] Which LLM provider and model for v1? **Google Gemini `gemini-3.8-flash`**, confirmed for Phase 3 (13 Oct 2026). Roughly $0.001–0.005 per note at the spike's token counts.
 - [ ] Keep raw audio after saving by default, or delete?
 - [ ] Default hotkey? (Must not clash with common apps.)
 - [ ] Note language: always transcript language, or user-selectable?

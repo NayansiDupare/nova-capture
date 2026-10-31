@@ -243,6 +243,7 @@ export type ChunkResult = {
 - Offsets each chunk's segment timestamps by the chunk start time.
 - Removes duplicated text in the overlap region by aligning the tail of one chunk with the head of the next.
 - ~~Passes the last sentence of the previous chunk as a prompt hint~~. Not used while chunks are transcribed in parallel ([ADR 0004](./adr/0004-chunk-after-stop.md)); overlap removal handles continuity.
+- Passes the user's **vocabulary** as a glossary prompt (`Glossary: RAG, LangChain.`) with every chunk, so Whisper spells expected terms right ([ADR 0006](./adr/0006-user-vocabulary.md)).
 - Produces one ordered list of segments: the **canonical transcript**.
 
 ### Providers
@@ -321,7 +322,17 @@ export interface LLMProvider {
 - Never add outside facts
 - Output in the transcript's language unless the user asks otherwise
 
-Prompts live in `packages/core/prompts` with a version string. The **prompt version and model are stored on each note**.
+Prompts live in `packages/core/src/prompts` with a version string (`note-v2`: adds the user's vocabulary, [ADR 0006](./adr/0006-user-vocabulary.md)). The **prompt version and model are stored on each note**.
+
+### Implementation (Phase 3, [ADR 0005](./adr/0005-note-generation-job-and-drafts.md))
+
+- **Mode:** Quick Save below 2 minutes of speech (summed segment time), Full Note otherwise.
+- **Provider:** Gemini `gemini-3.8-flash` through `generateContent` with `responseSchema`, derived from the zod output schema. About $0.75 / $3.75 per million input / output tokens; thinking tokens bill as output.
+- **Job:** a `generate_note` job runs after transcription. It stores a draft in `note_drafts` and moves the session to `REVIEW`. A draft that already exists is never generated again.
+- **Failure:** invalid output after the repair call fails the job permanently (no automatic retry, so no extra spend). The session stays in `GENERATING` with the transcript intact and a Retry button. An empty transcript fails before any LLM call.
+- **Vocabulary:** when a transcript word sounds like a vocabulary term, the note uses the vocabulary spelling and lists the correction (`RAC → RAG`) in `uncertainTerms`. The transcript itself is never rewritten.
+- **Ground check:** a key point is flagged when no segment overlaps its time range (±1 s), or when it quotes a term the transcript does not contain (vocabulary terms count as present). Flags show in the Review screen and are recomputed on save.
+- **Long transcripts:** a single call for now. Map-reduce stays deferred (§24) until a real transcript hits the limits.
 
 ### Output schemas
 
@@ -447,12 +458,25 @@ CREATE TABLE transcript_chunks (
 );
 CREATE INDEX jobs_due ON jobs (status, next_run_at);
 CREATE INDEX jobs_session ON jobs (session_id);
+
+-- Migration 003 (Phase 3)
+CREATE TABLE note_drafts (
+  session_id TEXT PRIMARY KEY REFERENCES sessions(id),
+  content TEXT NOT NULL,         -- JSON NoteContent, until the note is saved or discarded
+  ai_model TEXT NOT NULL,
+  prompt_version TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+ALTER TABLE notes ADD COLUMN uncertain_terms TEXT;  -- JSON string[]
+CREATE UNIQUE INDEX notes_session ON notes (session_id);
+CREATE INDEX segments_note ON segments (note_id);
 ```
 
-- The FTS table is updated by the repository **inside the same transaction** as the note write.
+- The FTS table is updated by the repository **inside the same transaction** as the note write. Saving a note also deletes its draft and moves the session to `SAVED` in that transaction.
+- `notes.summary` holds the Full Note summary or the Quick Save gist. `notes.key_points` is JSON with each point's time range and ground-check flags.
 - A later migration adds an embeddings table through `sqlite-vec` for semantic search.
 
-**Repository layer:** `NotesRepo`, `SessionsRepo`, `JobsRepo`, `SettingsRepo`, `UsageRepo`, `TranscriptChunksRepo`, plus `SecretStore` for API keys. Renderers never see SQL.
+**Repository layer:** `NotesRepo`, `NoteDraftsRepo`, `SessionsRepo`, `JobsRepo`, `SettingsRepo`, `UsageRepo`, `TranscriptChunksRepo`, plus `SecretStore` for API keys. Renderers never see SQL.
 
 ---
 
@@ -463,15 +487,17 @@ All channels are defined once in `packages/core` as zod schemas. The preload scr
 | Direction | Channel | Purpose |
 |---|---|---|
 | UI → main | `capture:start`, `capture:stop`, `capture:pause`, `capture:resume` | Intents. `start` returns the session id (or the running one); failures arrive as `session:state` FAILED |
-| UI → main | `notes:list`, `notes:get`, `notes:search`, `notes:save`, `notes:update`, `notes:delete` | CRUD |
+| UI → main | `notes:save` | Saves the reviewed note (title, summary, key points, tags) and moves the session to SAVED. Mode, language and model come from the draft |
+| UI → main | `notes:list`, `notes:get`, `notes:search`, `notes:update`, `notes:delete` | CRUD (Phase 4) |
 | UI → main | `settings:get`, `settings:set`, `secrets:set` | Settings. Keys can be written but never read back |
-| UI → main | `sessions:retry`, `sessions:discard` | Retry failed transcription; discard a session (drops its queued jobs) |
-| UI → main | `sessions:transcript` | The transcript assembled so far (temporary view until notes exist) |
+| UI → main | `sessions:retry`, `sessions:discard` | Retry a failed transcription or note generation; discard a session (drops its queued jobs) |
+| UI → main | `sessions:transcript` | The transcript assembled so far (shown next to the note in Review) |
+| UI → main | `notes:draft` | The generated note waiting for review, or null |
 | UI → main | `sessions:recover` | Recovery screen choices (Phase 6). Until then, interrupted sessions resume automatically at launch |
 | Main → UI | `session:state` | State machine updates |
 | Main → UI | `capture:level` | Audio level for the meter (throttled) |
 | Main → UI | `transcript:partial` | Live text (Phase 6) |
-| Main → UI | `note:ready` | Generated note for review |
+| Main → UI | `note:ready` | Generated note for review (planned for the overlay, Phase 5; the UI uses `notes:draft` on `session:state` REVIEW today) |
 | Main → UI | `error:user` | Plain-language errors with an action |
 
 > The audio data path (Capture Host → Audio Worker) is a direct `MessagePort` and is **not** part of the general IPC surface.
@@ -717,10 +743,10 @@ The goal for v1 is **depth over breadth**: a few hard problems solved well, in a
 
 ### Phase 3: AI notes and review
 
-- [ ] `LLMProvider` adapter with `generateStructured` and zod validation + one repair call
-- [ ] Versioned prompts for Quick Save and Full Note
-- [ ] Ground check: time ranges on key points, quoted-term check
-- [ ] Review screen: edit, save, discard
+- [x] `LLMProvider` adapter (Gemini) with `generateStructured` and zod validation + one repair call ([ADR 0005](./adr/0005-note-generation-job-and-drafts.md))
+- [x] Versioned prompts for Quick Save and Full Note
+- [x] Ground check: time ranges on key points, quoted-term check
+- [x] Review screen: edit, save, discard (Zustand session store)
 
 ### Phase 4: Library and search
 
