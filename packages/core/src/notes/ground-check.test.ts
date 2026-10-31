@@ -41,6 +41,13 @@ describe('groundKeyPoints', () => {
     expect(results.map((r) => r.flags)).toEqual([[], ['quoted-term-missing']]);
   });
 
+  it('trusts quoted vocabulary terms that correct a misheard word', () => {
+    const transcript = [{ startMs: 0, endMs: 4000, text: 'Everything related to RAC.' }];
+    const points = [point('Covers "RAG" from scratch.', 0, 4000)];
+    expect(groundKeyPoints(points, transcript)[0]?.flags).toEqual(['quoted-term-missing']);
+    expect(groundKeyPoints(points, transcript, ['rag'])[0]?.flags).toEqual([]);
+  });
+
   it('flags every point when the transcript is empty', () => {
     const [result] = groundKeyPoints([point('"x"', 0, 1000)], []);
     expect(result?.flags).toEqual(['time-range-not-in-transcript', 'quoted-term-missing']);

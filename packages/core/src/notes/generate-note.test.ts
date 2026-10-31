@@ -67,6 +67,20 @@ describe('generateNote', () => {
     ]);
   });
 
+  it('sends the vocabulary and trusts it in the ground check', async () => {
+    const corrected = {
+      ...FULL_OUTPUT,
+      keyPoints: [{ text: 'Explains "RAG".', startSec: 0, endSec: 100 }],
+    };
+    const llm = new FakeLLM([{ output: corrected }]);
+
+    const note = await generateNote(llm, { segments: LONG, vocabulary: ['RAG'] });
+
+    expect(llm.calls[0]?.user).toContain('Vocabulary');
+    expect(llm.calls[0]?.user).toContain(': RAG');
+    expect(note.content.keyPoints[0]?.flags).toEqual([]);
+  });
+
   it('honours an explicit mode', async () => {
     const llm = new FakeLLM([{ output: FULL_OUTPUT }]);
     const note = await generateNote(llm, { segments: SHORT, mode: 'full' });

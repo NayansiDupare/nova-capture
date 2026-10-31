@@ -27,6 +27,8 @@ export type GenerateNoteInput = {
   readonly segments: readonly TranscriptSegment[];
   /** Defaults to {@link chooseNoteMode}. */
   readonly mode?: NoteMode;
+  /** The user's spelling of expected terms (ADR 0006). */
+  readonly vocabulary?: readonly string[];
   /** Called after every billed call, including ones whose output was invalid. */
   readonly onUsage?: (usage: LlmUsage) => void;
   readonly signal?: CancelSignal;
@@ -43,7 +45,8 @@ export async function generateNote(
   input: GenerateNoteInput,
 ): Promise<GeneratedNote> {
   const mode = input.mode ?? chooseNoteMode(input.segments);
-  const prompt = buildNotePrompt(input.segments, mode);
+  const vocabulary = input.vocabulary ?? [];
+  const prompt = buildNotePrompt(input.segments, mode, vocabulary);
 
   let output: { mode: 'full'; note: FullNoteOutput } | { mode: 'quick'; note: QuickNoteOutput };
   try {
@@ -55,7 +58,10 @@ export async function generateNote(
 
   const content = toNoteContent(output);
   return {
-    content: { ...content, keyPoints: groundKeyPoints(content.keyPoints, input.segments) },
+    content: {
+      ...content,
+      keyPoints: groundKeyPoints(content.keyPoints, input.segments, vocabulary),
+    },
     aiModel: llm.model,
     promptVersion: NOTE_PROMPT_VERSION,
   };

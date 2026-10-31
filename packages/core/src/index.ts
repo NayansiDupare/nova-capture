@@ -74,6 +74,7 @@ export {
   NOTE_PROMPT_VERSION,
 } from './prompts/note-prompt';
 export type { NotePrompt } from './prompts/note-prompt';
+export { buildSttPrompt, MAX_STT_PROMPT_LENGTH } from './prompts/stt-prompt';
 export type { BackoffOptions } from './jobs/backoff';
 
 export {
@@ -97,12 +98,16 @@ export {
   DEFAULT_SETTINGS,
   LLM_PROVIDER_IDS,
   LlmProviderIdSchema,
+  MAX_VOCABULARY_TERM_LENGTH,
+  MAX_VOCABULARY_TERMS,
+  parseVocabulary,
   SECRET_IDS,
   SecretIdSchema,
   SettingsPatchSchema,
   SettingsSchema,
   STT_PROVIDER_IDS,
   SttProviderIdSchema,
+  VocabularySchema,
 } from './settings/settings';
 export type {
   LlmProviderId,

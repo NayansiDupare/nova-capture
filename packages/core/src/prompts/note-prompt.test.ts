@@ -27,6 +27,17 @@ describe('note prompt', () => {
     expect(buildNotePrompt(SEGMENTS, 'quick')).toMatchSnapshot();
   });
 
+  it('adds the vocabulary, and the correction rule for full notes only', () => {
+    expect(buildNotePrompt(SEGMENTS, 'full', ['RAG', 'LangChain'])).toMatchSnapshot();
+    const quick = buildNotePrompt(SEGMENTS, 'quick', ['RAG']).user;
+    expect(quick).toContain("Vocabulary (the user's spelling of terms that may be spoken): RAG");
+    expect(quick).not.toContain('uncertainTerms');
+  });
+
+  it('leaves the vocabulary out when there is none', () => {
+    expect(buildNotePrompt(SEGMENTS, 'full', []).user).not.toContain('Vocabulary');
+  });
+
   it('keeps the transcript out of the system prompt, inside <transcript> tags', () => {
     const prompt = buildNotePrompt(SEGMENTS, 'full');
     expect(prompt.system).not.toContain('Fourier');

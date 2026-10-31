@@ -31,7 +31,7 @@ export type ChunkResult = {
 
 export type TranscribeOptions = {
   readonly language?: string;
-  /** Last sentence of the previous chunk, for continuity. */
+  /** Spelling hint for the model, built from the user's vocabulary (ADR 0006). */
   readonly prompt?: string;
   readonly signal?: CancelSignal;
 };

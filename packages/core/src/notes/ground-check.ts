@@ -15,14 +15,18 @@ const QUOTED = /"([^"]+)"|“([^”]+)”|`([^`]+)`/gu;
 export function groundKeyPoints(
   keyPoints: readonly KeyPointEdit[],
   transcript: readonly TranscriptSegment[],
+  vocabulary: readonly string[] = [],
 ): KeyPoint[] {
   const transcriptText = normalize(transcript.map((s) => s.text).join(' '));
+  // A vocabulary term may correct what STT misheard, so it need not appear in the transcript.
+  const trusted = new Set(vocabulary.map(normalize));
   return keyPoints.map((point) => {
     const flags: GroundingFlag[] = [];
     if (!transcript.some((segment) => overlaps(point, segment))) {
       flags.push('time-range-not-in-transcript');
     }
-    if (quotedTerms(point.text).some((term) => !containsWords(transcriptText, term))) {
+    const quoted = quotedTerms(point.text).filter((term) => !trusted.has(term));
+    if (quoted.some((term) => !containsWords(transcriptText, term))) {
       flags.push('quoted-term-missing');
     }
     return { ...point, flags };
