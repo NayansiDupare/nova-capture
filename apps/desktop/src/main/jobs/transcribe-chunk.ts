@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { buildSttPrompt } from '@nova/core';
 import type { ChunkPlan, SpeechToTextProvider } from '@nova/core';
 
 import type { JobHandler } from './job-runner';
@@ -42,6 +43,8 @@ export function createTranscribeChunkHandler(deps: {
   chunks: TranscriptChunksRepo;
   usage: UsageRepo;
   getProvider: () => SpeechToTextProvider;
+  /** The user's vocabulary, read per chunk so a change applies to the next attempt (ADR 0006). */
+  getVocabulary?: () => readonly string[];
   now?: () => number;
 }): JobHandler {
   const now = deps.now ?? Date.now;
@@ -58,7 +61,8 @@ export function createTranscribeChunkHandler(deps: {
     };
     const audio = await readChunkWav(spoolPath, chunk);
     const provider = deps.getProvider();
-    const result = await provider.transcribeChunk(audio, {});
+    const prompt = buildSttPrompt(deps.getVocabulary?.() ?? []);
+    const result = await provider.transcribeChunk(audio, prompt === undefined ? {} : { prompt });
 
     deps.chunks.save(job.sessionId, provider.id, { chunk, result });
     deps.usage.record({

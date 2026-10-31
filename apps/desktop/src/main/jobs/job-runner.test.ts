@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MockInstance } from 'vitest';
 
 import { ProviderError } from '@nova/core';
 
@@ -6,11 +7,12 @@ import { JobsRepo } from '../db/jobs-repo';
 import type { Job } from '../db/jobs-repo';
 import { openDatabase } from '../db/open-database';
 import { log } from '../log';
-import { JobRunner } from './job-runner';
+import { JobRunner, PermanentJobError } from './job-runner';
 import type { JobHandler, JobOutcome } from './job-runner';
 
 let clock: number;
 let settled: [string, JobOutcome][];
+let warn: MockInstance<typeof log.warn>;
 const noop: JobHandler = () => Promise.resolve();
 
 const setup = (
@@ -38,7 +40,7 @@ const setup = (
 beforeEach(() => {
   clock = 1_000_000;
   settled = [];
-  vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+  warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -108,6 +110,24 @@ describe('JobRunner', () => {
       lastError: 'Invalid API Key',
     });
     expect(settled).toEqual([['j1', 'failed']]);
+  });
+
+  it('fails a PermanentJobError at once', async () => {
+    const { jobs, runner, add } = setup(() =>
+      Promise.reject(new PermanentJobError('Nothing to write a note from')),
+    );
+    add('j1');
+    await runner.tick();
+    expect(jobs.get('j1')).toMatchObject({ status: 'failed', attempts: 1 });
+    expect(settled).toEqual([['j1', 'failed']]);
+    expect(warn).toHaveBeenCalledWith('job attempt failed', {
+      jobId: 'j1',
+      type: 'transcribe_chunk',
+      sessionId: 's1',
+      attempts: 1,
+      willRetry: false,
+      error: 'Nothing to write a note from',
+    });
   });
 
   it('gives up after maxAttempts', async () => {
