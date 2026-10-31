@@ -4,14 +4,18 @@ import type { MockInstance } from 'vitest';
 import { DEFAULT_SETTINGS, IPC_CHANNELS } from '@nova/core';
 import type { NoteDraft } from '@nova/core';
 
-import { openDatabase } from '../db/open-database';
-import { SettingsRepo } from '../db/settings-repo';
-import { log } from '../log';
 import { createIpcHandlers } from './handlers';
 import type { CaptureControl } from './handlers';
 import { IpcRequestError, registerIpcHandlers } from './ipc-router';
 import type { InvokeEvent } from './ipc-router';
 import { isTrustedSender } from './trusted-sender';
+import { NotesRepo } from '../db/notes-repo';
+import { openDatabase } from '../db/open-database';
+import { SessionsRepo } from '../db/sessions-repo';
+import { SettingsRepo } from '../db/settings-repo';
+import { TranscriptChunksRepo } from '../db/transcript-chunks-repo';
+import { log } from '../log';
+import { createNoteLibrary } from '../notes/note-library';
 import type { Encryptor } from '../secrets/secret-store';
 import { SecretStore } from '../secrets/secret-store';
 
@@ -74,6 +78,16 @@ const fakeCapture = () => {
   return { capture, calls };
 };
 
+const libraryFor = (db: ReturnType<typeof openDatabase>) =>
+  createNoteLibrary({
+    db,
+    notes: new NotesRepo(db),
+    sessions: new SessionsRepo(db),
+    chunks: new TranscriptChunksRepo(db),
+    now: () => 9,
+    getVocabulary: () => [],
+  });
+
 const setup = () => {
   const db = openDatabase(':memory:');
   const secrets = new SecretStore(db, encryptor);
@@ -81,7 +95,12 @@ const setup = () => {
   const listeners = new Map<string, Listener>();
   registerIpcHandlers(
     { handle: (channel, listener) => listeners.set(channel, listener) },
-    createIpcHandlers({ settings: new SettingsRepo(db), secrets, capture }),
+    createIpcHandlers({
+      settings: new SettingsRepo(db),
+      secrets,
+      capture,
+      library: libraryFor(db),
+    }),
     (event) => isTrustedSender(event, new Set([TRUSTED_ID])),
   );
   const invoke = (channel: string, event: InvokeEvent, ...args: unknown[]) => {
@@ -89,7 +108,7 @@ const setup = () => {
     if (!listener) throw new Error(`No handler for ${channel}`);
     return Promise.resolve(listener(event, ...args));
   };
-  return { listeners, secrets, invoke, calls };
+  return { db, listeners, secrets, invoke, calls };
 };
 
 describe('IPC router', () => {
@@ -191,11 +210,60 @@ describe('IPC router', () => {
     expect(calls).toEqual(['save s1 Fourier']);
   });
 
+  it('serves a saved note through list, search, get, update and delete', async () => {
+    const { db, invoke } = setup();
+    db.prepare("INSERT INTO sessions (id, state, started_at) VALUES ('s1', 'SAVED', 1)").run();
+    new NotesRepo(db).create({
+      id: 'n1',
+      sessionId: 's1',
+      content: DRAFT.content,
+      transcript: [{ startMs: 0, endMs: 1000, text: 'Hello class.', confidence: 0.9 }],
+      aiModel: 'fake-llm-1',
+      promptVersion: 'note-v1',
+      sttProvider: 'fake-stt',
+      now: 5,
+    });
+
+    await expect(invoke('notes:list', fromMainWindow, {})).resolves.toMatchObject({
+      notes: [{ id: 'n1', title: 'Fourier', tags: ['math'] }],
+      hasMore: false,
+    });
+    await expect(
+      invoke('notes:search', fromMainWindow, { query: ' hello ' }),
+    ).resolves.toMatchObject({ notes: [{ id: 'n1', snippet: 'Hello class.' }], hasMore: false });
+    await expect(invoke('notes:get', fromMainWindow, { noteId: 'n1' })).resolves.toMatchObject({
+      note: { segments: [{ text: 'Hello class.', confidence: 0.9 }] },
+    });
+    await expect(
+      invoke('notes:update', fromMainWindow, {
+        noteId: 'n1',
+        changes: { title: '  Laplace ', favorite: true },
+      }),
+    ).resolves.toMatchObject({ note: { title: 'Laplace', favorite: true, updatedAt: 9 } });
+    await expect(invoke('notes:delete', fromMainWindow, { noteId: 'n1' })).resolves.toEqual({});
+    await expect(invoke('notes:get', fromMainWindow, { noteId: 'n1' })).resolves.toEqual({
+      note: null,
+    });
+  });
+
+  it('tells the renderer when the note to update is gone', async () => {
+    const { invoke } = setup();
+    await expect(
+      invoke('notes:update', fromMainWindow, { noteId: 'gone', changes: { title: 'T' } }),
+    ).rejects.toThrow('This note no longer exists.');
+  });
+
   it.each([
     ['a note with a model field', 'notes:save', { sessionId: 's1', note: { aiModel: 'x' } }],
     ['a missing session id', 'sessions:retry', {}],
     ['an empty session id', 'sessions:discard', { sessionId: '' }],
     ['a payload on capture:start', 'capture:start', { force: true }],
+    ['an oversized page', 'notes:list', { limit: 1000 }],
+    ['a missing note id', 'notes:get', {}],
+    ['a blank search', 'notes:search', { query: '   ' }],
+    ['an update with a model field', 'notes:update', { noteId: 'n1', changes: { aiModel: 'x' } }],
+    ['an update with no changes', 'notes:update', { noteId: 'n1', changes: {} }],
+    ['an empty note id on delete', 'notes:delete', { noteId: '' }],
   ])('rejects %s', async (_label, channel, payload) => {
     const { invoke, calls } = setup();
     await expect(invoke(channel, fromMainWindow, payload)).rejects.toThrow(/invalid payload/);
@@ -212,6 +280,7 @@ describe('IPC router', () => {
           settings: new SettingsRepo(db),
           secrets: new SecretStore(db, encryptor),
           capture: fakeCapture().capture,
+          library: libraryFor(db),
         }),
         'settings:get': () => ({ ...DEFAULT_SETTINGS, apiKey: 'oops' }),
       },

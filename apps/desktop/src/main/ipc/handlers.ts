@@ -2,6 +2,7 @@ import type { NoteDraft, NoteEdits, TranscriptSegment } from '@nova/core';
 
 import type { IpcHandlers } from './ipc-router';
 import type { SettingsRepo } from '../db/settings-repo';
+import type { NoteLibrary } from '../notes/note-library';
 import type { SecretStore } from '../secrets/secret-store';
 
 /** The orchestrator operations the UI may trigger. */
@@ -22,8 +23,9 @@ export function createIpcHandlers(deps: {
   settings: SettingsRepo;
   secrets: SecretStore;
   capture: CaptureControl;
+  library: NoteLibrary;
 }): IpcHandlers {
-  const { capture } = deps;
+  const { capture, library } = deps;
   return {
     'settings:get': () => deps.settings.get(),
     'settings:set': (patch) => deps.settings.update(patch),
@@ -52,5 +54,13 @@ export function createIpcHandlers(deps: {
     'sessions:transcript': ({ sessionId }) => ({ segments: capture.transcript(sessionId) }),
     'notes:draft': ({ sessionId }) => ({ draft: capture.draft(sessionId) }),
     'notes:save': ({ sessionId, note }) => ({ noteId: capture.save(sessionId, note) }),
+    'notes:list': (query) => library.list(query),
+    'notes:get': ({ noteId }) => ({ note: library.get(noteId) }),
+    'notes:search': (query) => library.search(query),
+    'notes:update': ({ noteId, changes }) => ({ note: library.update(noteId, changes) }),
+    'notes:delete': async ({ noteId }) => {
+      await library.delete(noteId);
+      return {};
+    },
   };
 }

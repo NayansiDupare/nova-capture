@@ -30,6 +30,7 @@ import { createGenerateNoteHandler } from './jobs/generate-note';
 import { JobRunner } from './jobs/job-runner';
 import { createTranscribeChunkHandler } from './jobs/transcribe-chunk';
 import { log } from './log';
+import { createNoteLibrary } from './notes/note-library';
 import { createNoteSaver } from './notes/save-note';
 import { createLlmProvider } from './providers/llm-registry';
 import { createSttProvider } from './providers/stt-registry';
@@ -151,7 +152,12 @@ async function start(): Promise<void> {
 
   registerIpcHandlers(
     ipcMain,
-    createIpcHandlers({ settings, secrets, capture: sessionOrchestrator }),
+    createIpcHandlers({
+      settings,
+      secrets,
+      capture: sessionOrchestrator,
+      library: createNoteLibrary({ db, notes, sessions, chunks, now: Date.now, getVocabulary }),
+    }),
     windows.isTrustedSender,
   );
   ipcMain.on(CAPTURE_HOST_CHANNELS.ended, (event, payload: unknown) => {
