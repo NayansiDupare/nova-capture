@@ -28,6 +28,10 @@ const api: NovaApi = {
     discard: (request) => ipcRenderer.invoke('sessions:discard', request),
     transcript: (request) => ipcRenderer.invoke('sessions:transcript', request),
   },
+  notes: {
+    draft: (request) => ipcRenderer.invoke('notes:draft', request),
+    save: (request) => ipcRenderer.invoke('notes:save', request),
+  },
   on: (event, listener) => {
     if (!EVENTS.has(event)) {
       throw new Error(`Unknown event: ${event}`);

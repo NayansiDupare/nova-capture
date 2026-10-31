@@ -1,4 +1,4 @@
-import type { TranscriptSegment } from '@nova/core';
+import type { NoteDraft, NoteEdits, TranscriptSegment } from '@nova/core';
 
 import type { IpcHandlers } from './ipc-router';
 import type { SettingsRepo } from '../db/settings-repo';
@@ -13,6 +13,8 @@ export type CaptureControl = {
   retry(sessionId: string): Promise<void>;
   discard(sessionId: string): Promise<void>;
   transcript(sessionId: string): TranscriptSegment[];
+  draft(sessionId: string): NoteDraft | null;
+  save(sessionId: string, edits: NoteEdits): string;
 };
 
 /** Wires each IPC channel to the main-process service that owns it. */
@@ -48,5 +50,7 @@ export function createIpcHandlers(deps: {
       return {};
     },
     'sessions:transcript': ({ sessionId }) => ({ segments: capture.transcript(sessionId) }),
+    'notes:draft': ({ sessionId }) => ({ draft: capture.draft(sessionId) }),
+    'notes:save': ({ sessionId, note }) => ({ noteId: capture.save(sessionId, note) }),
   };
 }
