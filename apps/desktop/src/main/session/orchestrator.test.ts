@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -56,6 +56,13 @@ const DRAFT: NoteDraft = {
 };
 
 const LECTURE = speechPattern(['speech', 28_000], ['silence', 2000], ['speech', 20_000]);
+
+const EDITS = {
+  title: 'My title',
+  summary: 'Edited gist.',
+  keyPoints: [],
+  tags: ['Signals', 'signals'],
+};
 
 describe('SessionOrchestrator', () => {
   it('records, transcribes and writes a note draft for review', async () => {
@@ -252,6 +259,24 @@ describe('SessionOrchestrator', () => {
         .run(id, state, spoolPath);
     };
 
+    it('removes audio left behind by saved sessions, and nobody else', async () => {
+      h = createCaptureHarness();
+      seed('SAVED', 'saved');
+      seed('SAVED', 'already-gone', false);
+      seed('REVIEW', 'review');
+      seed('DISCARDED', 'discarded');
+      seed('FAILED', 'failed');
+
+      await h.orchestrator.recover();
+
+      expect(existsSync(join(h.dir, 'saved.pcm'))).toBe(false);
+      expect(h.sessions.get('saved')?.spoolPath).toBeNull();
+      expect(h.sessions.get('already-gone')?.spoolPath).toBeNull();
+      expect(existsSync(join(h.dir, 'review.pcm'))).toBe(true);
+      expect(existsSync(join(h.dir, 'discarded.pcm'))).toBe(true);
+      expect(existsSync(join(h.dir, 'failed.pcm'))).toBe(true);
+    });
+
     it.each(['LISTENING', 'PAUSED'])('finishes a capture interrupted in %s', async (state) => {
       h = createCaptureHarness();
       seed(state);
@@ -404,12 +429,7 @@ describe('SessionOrchestrator', () => {
       const id = await record(LECTURE);
       await h.drainJobs();
 
-      const noteId = h.orchestrator.save(id, {
-        title: 'My title',
-        summary: 'Edited gist.',
-        keyPoints: [],
-        tags: ['Signals', 'signals'],
-      });
+      const noteId = h.orchestrator.save(id, EDITS);
 
       expect(h.states().at(-1)).toBe('SAVED');
       expect(h.notes.get(noteId)).toMatchObject({
@@ -421,8 +441,80 @@ describe('SessionOrchestrator', () => {
         sttProvider: 'fake-stt',
       });
       expect(h.orchestrator.draft(id)).toBeNull();
-      // The spool is kept; cleaning it up after save is a separate, later step.
-      expect(existsSync(h.sessions.get(id)?.spoolPath ?? '')).toBe(true);
+    });
+
+    it('removes the audio once the note is saved, and keeps the text', async () => {
+      h = createCaptureHarness();
+      const id = await record(LECTURE);
+      await h.drainJobs();
+      const spool = h.sessions.get(id)?.spoolPath ?? '';
+      expect(existsSync(spool)).toBe(true);
+
+      const noteId = h.orchestrator.save(id, EDITS);
+
+      await vi.waitFor(() => {
+        expect(h.sessions.get(id)?.spoolPath).toBeNull();
+      });
+      expect(existsSync(spool)).toBe(false);
+      expect(h.notes.get(noteId)?.segments.map((s) => s.text)).toEqual(['chunk 0', 'chunk 1']);
+      expect(h.orchestrator.transcript(id)).toHaveLength(2);
+    });
+
+    it('keeps the audio when the save fails', async () => {
+      h = createCaptureHarness();
+      const id = await record(LECTURE);
+      await h.drainJobs();
+      const spool = h.sessions.get(id)?.spoolPath ?? '';
+      h.db.exec(
+        "CREATE TRIGGER fail_save BEFORE INSERT ON notes BEGIN SELECT RAISE(ABORT, 'disk full'); END",
+      );
+
+      expect(() => h.orchestrator.save(id, EDITS)).toThrow(/disk full/);
+      await settle();
+
+      expect(existsSync(spool)).toBe(true);
+      expect(h.sessions.get(id)).toMatchObject({ state: 'REVIEW', spoolPath: spool });
+    });
+
+    it('keeps the audio of a session the user discarded', async () => {
+      h = createCaptureHarness();
+      const id = await record(LECTURE);
+      await h.drainJobs();
+      const spool = h.sessions.get(id)?.spoolPath ?? '';
+
+      await h.orchestrator.discard(id);
+      await settle();
+
+      expect(existsSync(spool)).toBe(true);
+    });
+
+    it('still saves when the audio cannot be removed, and removes it at the next launch', async () => {
+      h = createCaptureHarness();
+      const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+      const id = await record(LECTURE);
+      await h.drainJobs();
+      const spool = h.sessions.get(id)?.spoolPath ?? '';
+      // A folder cannot be removed by a plain file delete, like a file another program has locked.
+      rmSync(spool);
+      mkdirSync(spool);
+
+      const noteId = h.orchestrator.save(id, EDITS);
+
+      await vi.waitFor(() => {
+        expect(warn).toHaveBeenCalledWith('could not remove audio after save', {
+          sessionId: id,
+          error: expect.any(String) as string,
+        });
+      });
+      expect(h.notes.get(noteId)?.title).toBe(EDITS.title);
+      expect(h.sessions.get(id)).toMatchObject({ state: 'SAVED', spoolPath: spool });
+
+      rmSync(spool, { recursive: true });
+      writeFileSync(spool, 'audio');
+      await h.orchestrator.recover();
+
+      expect(existsSync(spool)).toBe(false);
+      expect(h.sessions.get(id)?.spoolPath).toBeNull();
     });
   });
 });

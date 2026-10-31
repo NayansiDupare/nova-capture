@@ -101,6 +101,26 @@ describe('SessionsRepo', () => {
     ]);
   });
 
+  it('lists only saved sessions that still have an audio file', () => {
+    const db = openDatabase(':memory:');
+    const insert = db.prepare(
+      'INSERT INTO sessions (id, state, started_at, spool_path) VALUES (?, ?, ?, ?)',
+    );
+    insert.run('newer', 'SAVED', 2, '/spool/newer.pcm');
+    insert.run('older', 'SAVED', 1, '/spool/older.pcm');
+    insert.run('gone', 'SAVED', 1, null);
+    insert.run('review', 'REVIEW', 1, '/spool/review.pcm');
+    insert.run('discarded', 'DISCARDED', 1, '/spool/discarded.pcm');
+    insert.run('failed', 'FAILED', 1, '/spool/failed.pcm');
+
+    const repo = new SessionsRepo(db);
+    expect(repo.listSavedWithAudio().map((s) => s.id)).toEqual(['older', 'newer']);
+
+    repo.clearSpoolPath('older');
+    expect(repo.get('older')?.spoolPath).toBeNull();
+    expect(repo.listSavedWithAudio().map((s) => s.id)).toEqual(['newer']);
+  });
+
   it('rejects a stored row with an unknown state instead of guessing', () => {
     const db = openDatabase(':memory:');
     db.prepare("INSERT INTO sessions (id, state, started_at) VALUES ('s1', 'WARPING', 1)").run();

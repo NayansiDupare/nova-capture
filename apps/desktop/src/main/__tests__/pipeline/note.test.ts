@@ -69,6 +69,8 @@ describe('note pipeline', () => {
     ]);
 
     const content = draft?.content;
+    const spoolPath = h.sessions.get(id)?.spoolPath ?? '';
+    expect(existsSync(spoolPath)).toBe(true);
     const noteId = h.orchestrator.save(id, {
       title: content?.title ?? '',
       summary: content?.summary ?? '',
@@ -86,6 +88,13 @@ describe('note pipeline', () => {
       .all()
       .map((r) => r['note_id']);
     expect(hits).toEqual([noteId]);
+
+    // Only the text stays: the audio is gone, and the note still has its whole transcript.
+    await vi.waitFor(() => {
+      expect(h.sessions.get(id)?.spoolPath).toBeNull();
+    });
+    expect(existsSync(spoolPath)).toBe(false);
+    expect(h.notes.get(noteId)?.segments.map((s) => s.text)).toContain('chunk 0');
   });
 
   it('shows a visible failure with the transcript kept when the LLM output stays invalid', async () => {

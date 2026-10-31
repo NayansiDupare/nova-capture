@@ -97,6 +97,22 @@ export class SessionsRepo {
     }
   }
 
+  /** Saved sessions whose audio file has not been removed yet, oldest first. */
+  listSavedWithAudio(): SessionRecord[] {
+    return this.db
+      .prepare(
+        `SELECT ${COLUMNS} FROM sessions WHERE state = ? AND spool_path IS NOT NULL
+         ORDER BY started_at, id`,
+      )
+      .all('SAVED' satisfies SessionState)
+      .map(toRecord);
+  }
+
+  /** Records that a session's audio file is gone. */
+  clearSpoolPath(id: string): void {
+    this.db.prepare('UPDATE sessions SET spool_path = NULL WHERE id = ?').run(id);
+  }
+
   /** Sessions the app did not finish, oldest first. Offered for recovery at launch. */
   listUnfinished(): SessionRecord[] {
     const placeholders = TERMINAL_STATES.map(() => '?').join(', ');

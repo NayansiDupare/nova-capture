@@ -1,3 +1,5 @@
+import { rm } from 'node:fs/promises';
+
 import { assembleTranscript, planChunks } from '@nova/core';
 import type {
   IpcEventPayload,
@@ -54,7 +56,8 @@ export const CLOSED_DURING_CAPTURE =
 
 /**
  * Drives capture sessions through the state machine (ARCHITECTURE.md §8). Every transition is
- * persisted before it is announced, and no step deletes a spool or transcript.
+ * persisted before it is announced. A spool is removed only once its note is saved; no step
+ * deletes a transcript.
  */
 export class SessionOrchestrator<P> {
   /** The session that owns the capture device (STARTING, LISTENING or PAUSED). */
@@ -227,10 +230,14 @@ export class SessionOrchestrator<P> {
     return this.deps.drafts.get(sessionId) ?? null;
   }
 
-  /** Saves the reviewed note (REVIEW → SAVED) and returns its id. */
+  /**
+   * Saves the reviewed note (REVIEW → SAVED) and returns its id. The note holds the text, so the
+   * audio goes next. If saving throws, the audio is untouched (AGENTS.md §4.5).
+   */
   save(sessionId: string, edits: NoteEdits): string {
     const { noteId, session } = this.deps.saveNote(sessionId, edits);
     this.announce(session);
+    void this.removeAudio(session);
     return noteId;
   }
 
@@ -246,6 +253,25 @@ export class SessionOrchestrator<P> {
       } catch (error) {
         log.error('session recovery failed', { sessionId: session.id, error: describe(error) });
       }
+    }
+    for (const session of this.deps.sessions.listSavedWithAudio()) {
+      await this.removeAudio(session);
+    }
+  }
+
+  /**
+   * Removes a saved session's audio file. Never fails the save: if the file is locked, it stays
+   * listed and the next launch tries again.
+   */
+  private async removeAudio({ id, spoolPath }: SessionRecord): Promise<void> {
+    if (spoolPath === null) {
+      return;
+    }
+    try {
+      await rm(spoolPath, { force: true });
+      this.deps.sessions.clearSpoolPath(id);
+    } catch (error) {
+      log.warn('could not remove audio after save', { sessionId: id, error: describe(error) });
     }
   }
 
