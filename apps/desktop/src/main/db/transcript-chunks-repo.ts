@@ -65,6 +65,11 @@ export class TranscriptChunksRepo {
       .map((row) => String(row['provider']));
   }
 
+  /** Removes a session's chunks. Only for a saved note the user is deleting (AGENTS.md §4.5). */
+  deleteBySession(sessionId: string): void {
+    this.db.prepare('DELETE FROM transcript_chunks WHERE session_id = ?').run(sessionId);
+  }
+
   /** All saved chunks of a session, in chunk order, ready for `assembleTranscript`. */
   listBySession(sessionId: string): TranscribedChunk[] {
     return this.db

@@ -79,7 +79,7 @@ describe('createNoteSaver', () => {
       aiModel: 'gemini-3.8-flash',
       promptVersion: 'note-v1',
       sttProvider: 'groq',
-      transcript: 'The Fourier transform.',
+      segments: [{ startMs: 0, endMs: 4000, text: 'The Fourier transform.' }],
       createdAt: 9,
     });
     expect(drafts.get('s1')).toBeUndefined();
