@@ -118,13 +118,13 @@ frame-ancestors 'none';
 | Data | Location | Retention |
 |---|---|---|
 | Notes, transcripts | SQLite in `%APPDATA%/Nova Capture/` | Until user deletes |
-| Spool audio | Temp folder in app data | Deleted after note is saved (default); never before |
+| Spool audio | Temp folder in app data | Deleted after note is saved; never before |
 | Logs | Rotating files in app data | Size-capped; no transcript text by default |
 | Usage log | SQLite | Until user clears |
 
 - **No telemetry.** No data leaves the machine except audio chunks to the STT provider and transcript text to the LLM provider.
 - Settings show which providers receive data.
-- "Delete note" removes the note, segments, FTS entry and any remaining audio.
+- "Delete note" removes the note, segments, transcript chunks, FTS entry and any remaining audio ([ADR 0007](./docs/adr/0007-library-backend.md)).
 - Diagnostics export excludes transcripts and keys; the user sees what's included before saving.
 
 ---

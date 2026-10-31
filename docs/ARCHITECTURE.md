@@ -290,6 +290,7 @@ discard: LISTENING, PAUSED, TRANSCRIBING, GENERATING, REVIEW --> DISCARDED
 - Every transition is **persisted** to the `sessions` table.
 - On launch, the orchestrator scans for sessions not in a terminal state and offers recovery: **resume transcription**, **retry generation**, or **discard**.
 - Failures in `TRANSCRIBING` or `GENERATING` keep the session in a retryable state and **never delete the transcript or spool file until the note is saved**.
+- **Once a note is saved, its spool file is removed and only the text stays.** This happens after the save commits and can never fail the save. If the file is locked, the session keeps its `spool_path` and the next launch tries again. Discarded and failed sessions keep their spool file.
 
 ---
 
@@ -470,9 +471,14 @@ CREATE TABLE note_drafts (
 ALTER TABLE notes ADD COLUMN uncertain_terms TEXT;  -- JSON string[]
 CREATE UNIQUE INDEX notes_session ON notes (session_id);
 CREATE INDEX segments_note ON segments (note_id);
+
+-- Migration 004 (Phase 4)
+CREATE INDEX notes_newest ON notes (created_at DESC, id DESC);
+CREATE INDEX notes_favorites ON notes (created_at DESC, id DESC) WHERE favorite = 1;
 ```
 
 - The FTS table is updated by the repository **inside the same transaction** as the note write. Saving a note also deletes its draft and moves the session to `SAVED` in that transaction.
+- Deleting a note is permanent: it removes any remaining spool file, then the note, segments, tag links, FTS row and transcript chunks in one transaction. `deleted_at` is not used ([ADR 0007](./adr/0007-library-backend.md)).
 - `notes.summary` holds the Full Note summary or the Quick Save gist. `notes.key_points` is JSON with each point's time range and ground-check flags.
 - A later migration adds an embeddings table through `sqlite-vec` for semantic search.
 
@@ -488,7 +494,11 @@ All channels are defined once in `packages/core` as zod schemas. The preload scr
 |---|---|---|
 | UI → main | `capture:start`, `capture:stop`, `capture:pause`, `capture:resume` | Intents. `start` returns the session id (or the running one); failures arrive as `session:state` FAILED |
 | UI → main | `notes:save` | Saves the reviewed note (title, summary, key points, tags) and moves the session to SAVED. Mode, language and model come from the draft |
-| UI → main | `notes:list`, `notes:get`, `notes:search`, `notes:update`, `notes:delete` | CRUD (Phase 4) |
+| UI → main | `notes:list` | One page of saved notes, newest first, optionally only favorites or one tag |
+| UI → main | `notes:get` | One saved note with key points and transcript segments, or null |
+| UI → main | `notes:search` | One page of notes matching the typed words, best match first, with a plain-text snippet |
+| UI → main | `notes:update` | Edits title, summary, key points or tags, or marks a favorite. Key points are ground-checked again |
+| UI → main | `notes:delete` | Permanently removes a note, its transcript and any remaining audio |
 | UI → main | `settings:get`, `settings:set`, `secrets:set` | Settings. Keys can be written but never read back |
 | UI → main | `sessions:retry`, `sessions:discard` | Retry a failed transcription or note generation; discard a session (drops its queued jobs) |
 | UI → main | `sessions:transcript` | The transcript assembled so far (shown next to the note in Review) |
@@ -751,7 +761,7 @@ The goal for v1 is **depth over breadth**: a few hard problems solved well, in a
 ### Phase 4: Library and search
 
 - [ ] Library screen with list, favorites, tags
-- [ ] FTS5 search, updated transactionally with note writes
+- [x] FTS5 search, updated transactionally with note writes (`notes:search`; the search box comes with the Library screen, [ADR 0007](./adr/0007-library-backend.md))
 - [ ] Note detail with clickable timestamps
 - [ ] Export to Markdown
 

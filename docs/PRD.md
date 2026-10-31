@@ -117,7 +117,7 @@ Nova Capture is a Windows desktop app that listens to whatever audio is playing 
 | Reliability | Zero capture loss on app crash; at most a few seconds lost on hard power-off |
 | Performance | Idle < 200 MB RAM total; low single-digit CPU while capturing; 10-min session → saved note in ~60 s typical |
 | Search | Instant results for thousands of notes |
-| Privacy | All notes local; raw audio deleted after note is saved (configurable); no telemetry |
+| Privacy | All notes local; raw audio deleted after note is saved; no telemetry |
 | Security | Electron hardening per [SECURITY.md](../SECURITY.md) |
 | Accessibility | Keyboard-operable UI, visible focus, WCAG AA contrast |
 | Platform | Windows 10/11 (exact minimum build confirmed in spike) |
@@ -181,6 +181,6 @@ Watching a video
 
 - [x] Which two STT providers to compare in the spike? **Deepgram (nova-3) and Groq (Whisper large-v3 turbo)**, see `spikes/stt-llm/`. Winner picked after the spike.
 - [x] Which LLM provider and model for v1? **Google Gemini `gemini-3.8-flash`**, confirmed for Phase 3 (13 Oct 2026). Roughly $0.001–0.005 per note at the spike's token counts.
-- [ ] Keep raw audio after saving by default, or delete?
+- [x] Keep raw audio after saving by default, or delete? **Delete.** Only the text is kept once a note is saved, with no setting to keep the audio (31 Oct 2026).
 - [ ] Default hotkey? (Must not clash with common apps.)
 - [ ] Note language: always transcript language, or user-selectable?
