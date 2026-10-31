@@ -9,7 +9,7 @@ export default defineConfig({
       include: [
         'packages/core/src/**/*.ts',
         // Main-process logic that runs without Electron. Windows and app wiring are covered by E2E.
-        'apps/desktop/src/main/{db,ipc,secrets,capture,jobs,providers,session,spool}/**/*.ts',
+        'apps/desktop/src/main/{db,ipc,secrets,capture,jobs,notes,providers,session,spool}/**/*.ts',
         // The worker entry (index.ts) is utility-process plumbing; its logic lives in testable modules.
         'apps/desktop/src/worker/**/*.ts',
       ],

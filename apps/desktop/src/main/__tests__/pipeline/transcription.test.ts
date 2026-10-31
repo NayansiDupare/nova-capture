@@ -35,7 +35,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-async function setup(stt: FakeSTT) {
+async function setup(stt: FakeSTT, vocabulary: readonly string[] = []) {
   let provider = stt;
   const db = openDatabase(':memory:');
   const sessions = new SessionsRepo(db);
@@ -68,6 +68,7 @@ async function setup(stt: FakeSTT) {
         chunks,
         usage,
         getProvider: () => provider,
+        getVocabulary: () => vocabulary,
         now: () => clock,
       }),
       generate_note: () => Promise.resolve(),
@@ -105,6 +106,16 @@ describe('transcription pipeline', () => {
     expect(transcript.map((s) => s.startMs)).toEqual(plan.map((c) => c.startMs));
     expect(usage.totalCostUsdSince(0)).toBe(0);
     expect(stt.calls).toHaveLength(plan.length);
+  });
+
+  it('sends the vocabulary to STT as a glossary hint, and no prompt without one', async () => {
+    const withVocabulary = new FakeSTT();
+    await (await setup(withVocabulary, ['RAG', 'LangChain'])).drain();
+    expect(withVocabulary.calls[0]?.opts).toEqual({ prompt: 'Glossary: RAG, LangChain.' });
+
+    const without = new FakeSTT();
+    await (await setup(without)).drain();
+    expect(without.calls[0]?.opts).toEqual({});
   });
 
   it('retries when STT fails twice, then completes', async () => {
