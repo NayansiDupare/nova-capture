@@ -1,13 +1,22 @@
 import { assembleTranscript, planChunks } from '@nova/core';
-import type { IpcEventPayload, SessionEvent, TranscriptSegment } from '@nova/core';
+import type {
+  IpcEventPayload,
+  NoteDraft,
+  NoteEdits,
+  SessionEvent,
+  TranscriptSegment,
+} from '@nova/core';
 
 import type { SpoolAnalysisResult, SpoolStopResult } from '../capture/worker-host';
 import type { Job, JobsRepo } from '../db/jobs-repo';
+import type { NoteDraftsRepo } from '../db/note-drafts-repo';
 import type { SessionRecord, SessionsRepo } from '../db/sessions-repo';
 import type { TranscriptChunksRepo } from '../db/transcript-chunks-repo';
+import { generateJobFor, generateJobId, generationStatus } from '../jobs/generate-note';
 import type { JobOutcome } from '../jobs/job-runner';
 import { transcribeJobFor, transcriptionStatus } from '../jobs/transcribe-chunk';
 import { log } from '../log';
+import type { SaveNote } from '../notes/save-note';
 
 export type WorkerControl<P> = {
   start(sessionId: string, spoolPath: string, framePort: P): Promise<void>;
@@ -27,6 +36,8 @@ export type OrchestratorDeps<P> = {
   readonly sessions: SessionsRepo;
   readonly jobs: JobsRepo;
   readonly chunks: TranscriptChunksRepo;
+  readonly drafts: Pick<NoteDraftsRepo, 'get'>;
+  readonly saveNote: SaveNote;
   readonly worker: WorkerControl<P>;
   readonly captureHost: CaptureHostControl<P>;
   /** A connected pair: frames posted on `hostPort` arrive on `workerPort`. */
@@ -158,22 +169,36 @@ export class SessionOrchestrator<P> {
 
   /** Called by the job runner after each attempt. Logs failures instead of throwing. */
   onJobSettled(job: Job, outcome: JobOutcome): void {
-    if (job.type !== 'transcribe_chunk' || outcome === 'retrying') {
+    if (outcome === 'retrying') {
       return;
     }
     try {
-      this.checkTranscription(job.sessionId);
+      if (job.type === 'transcribe_chunk') {
+        this.checkTranscription(job.sessionId);
+      } else {
+        this.checkGeneration(job.sessionId);
+      }
     } catch (error) {
-      log.error('checking transcription failed', {
+      log.error('checking job progress failed', {
         sessionId: job.sessionId,
+        type: job.type,
         error: describe(error),
       });
     }
   }
 
-  /** Retries a failed transcription: re-plans if planning failed, otherwise re-runs failed jobs. */
+  /**
+   * Retries a failed transcription (re-plans if planning failed, otherwise re-runs failed
+   * jobs) or a failed note generation.
+   */
   async retry(sessionId: string): Promise<void> {
+    const state = this.deps.sessions.get(sessionId)?.state;
     this.apply(sessionId, { type: 'retry' });
+    if (state === 'GENERATING') {
+      this.deps.jobs.retryFailed(sessionId, this.deps.now());
+      this.startGeneration(sessionId);
+      return;
+    }
     if (this.deps.jobs.listBySession(sessionId).length === 0) {
       await this.planTranscription(sessionId);
     } else {
@@ -195,6 +220,18 @@ export class SessionOrchestrator<P> {
   /** The transcript assembled from the chunks finished so far. */
   transcript(sessionId: string): TranscriptSegment[] {
     return assembleTranscript(this.deps.chunks.listBySession(sessionId));
+  }
+
+  /** The generated note waiting for review, if there is one. */
+  draft(sessionId: string): NoteDraft | null {
+    return this.deps.drafts.get(sessionId) ?? null;
+  }
+
+  /** Saves the reviewed note (REVIEW → SAVED) and returns its id. */
+  save(sessionId: string, edits: NoteEdits): string {
+    const { noteId, session } = this.deps.saveNote(sessionId, edits);
+    this.announce(session);
+    return noteId;
   }
 
   /**
@@ -235,8 +272,13 @@ export class SessionOrchestrator<P> {
           this.checkTranscription(session.id);
         }
         return;
+      case 'GENERATING':
+        if (session.error === null) {
+          this.startGeneration(session.id);
+        }
+        return;
       default:
-        // GENERATING and REVIEW are picked up by the note pipeline (Phase 3).
+        // REVIEW waits for the user; the draft is already stored.
         return;
     }
   }
@@ -281,10 +323,34 @@ export class SessionOrchestrator<P> {
     const status = transcriptionStatus(jobs);
     if (status === 'done') {
       this.apply(sessionId, { type: 'transcribed' });
+      this.startGeneration(sessionId);
     } else if (status === 'failed') {
       const lastError =
         jobs.find((job) => job.status === 'failed')?.lastError ?? 'Transcription failed';
       this.apply(sessionId, { type: 'transcribeFailed', error: lastError });
+    }
+  }
+
+  /** Queues the note job (a no-op if it exists) and checks whether a draft is already there. */
+  private startGeneration(sessionId: string): void {
+    this.deps.jobs.enqueue([generateJobFor(sessionId)], this.deps.now());
+    this.checkGeneration(sessionId);
+  }
+
+  private checkGeneration(sessionId: string): void {
+    const session = this.deps.sessions.get(sessionId);
+    if (session?.state !== 'GENERATING' || session.error !== null) {
+      return;
+    }
+    const job = this.deps.jobs.get(generateJobId(sessionId));
+    const status = generationStatus(this.deps.drafts.get(sessionId) !== undefined, job);
+    if (status === 'done') {
+      this.apply(sessionId, { type: 'generated' });
+    } else if (status === 'failed') {
+      this.apply(sessionId, {
+        type: 'generateFailed',
+        error: job?.lastError ?? 'Could not write the note',
+      });
     }
   }
 

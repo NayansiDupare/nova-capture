@@ -5,9 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MockInstance } from 'vitest';
 
 import { pcmToBytes, ProviderError } from '@nova/core';
-import { FakeSTT, speechPattern } from '@nova/core/testing';
+import type { NoteDraft, TranscribedChunk } from '@nova/core';
+import { FakeLLM, FakeSTT, speechPattern } from '@nova/core/testing';
 
-import { createCaptureHarness, settle, waitFor } from '../__tests__/capture-harness';
+import { createCaptureHarness, quickNoteLlm, settle, waitFor } from '../__tests__/capture-harness';
+import { generateJobId, INVALID_NOTE_MESSAGE, NO_SPEECH_MESSAGE } from '../jobs/generate-note';
 import { log } from '../log';
 import { CLOSED_DURING_CAPTURE } from './orchestrator';
 
@@ -32,17 +34,49 @@ async function record(pcm: Int16Array) {
   return id;
 }
 
+const CHUNK: TranscribedChunk = {
+  chunk: { index: 0, startMs: 0, endMs: 28_000 },
+  result: { segments: [{ startMs: 0, endMs: 28_000, text: 'Fourier.' }] },
+};
+
+const DRAFT: NoteDraft = {
+  sessionId: 's1',
+  content: {
+    mode: 'quick',
+    title: 'Saved before crash',
+    summary: 'Gist.',
+    keyPoints: [],
+    tags: [],
+    language: 'en',
+    uncertainTerms: [],
+  },
+  aiModel: 'fake-llm-1',
+  promptVersion: 'note-v1',
+  createdAt: 1,
+};
+
 const LECTURE = speechPattern(['speech', 28_000], ['silence', 2000], ['speech', 20_000]);
 
 describe('SessionOrchestrator', () => {
-  it('records, transcribes and reaches GENERATING with an assembled transcript', async () => {
+  it('records, transcribes and writes a note draft for review', async () => {
     h = createCaptureHarness();
     const id = await record(LECTURE);
 
     expect(h.sessions.get(id)).toMatchObject({ state: 'TRANSCRIBING', durationMs: 50_000 });
     await h.drainJobs();
 
-    expect(h.states()).toEqual(['STARTING', 'LISTENING', 'STOPPING', 'TRANSCRIBING', 'GENERATING']);
+    expect(h.states()).toEqual([
+      'STARTING',
+      'LISTENING',
+      'STOPPING',
+      'TRANSCRIBING',
+      'GENERATING',
+      'REVIEW',
+    ]);
+    expect(h.orchestrator.draft(id)?.content).toMatchObject({
+      mode: 'quick',
+      title: 'Fourier basics',
+    });
     expect(h.orchestrator.transcript(id).map((s) => s.text)).toEqual(['chunk 0', 'chunk 1']);
     expect(h.sessions.get(id)?.speechRatio).toBeCloseTo(48 / 50, 2);
     expect(h.captureHost.stops).toBe(1);
@@ -104,7 +138,7 @@ describe('SessionOrchestrator', () => {
     expect(h.events.find((e) => e.state === 'STOPPING')?.error).toBe(
       'The system audio stream ended',
     );
-    expect(h.sessions.get(id)).toMatchObject({ state: 'GENERATING', durationMs: 50_000 });
+    expect(h.sessions.get(id)).toMatchObject({ state: 'REVIEW', durationMs: 50_000 });
   });
 
   it('keeps flushed audio when the worker crashes mid-capture', async () => {
@@ -121,7 +155,7 @@ describe('SessionOrchestrator', () => {
     expect(h.events.find((e) => e.state === 'STOPPING')?.error).toMatch(/Audio worker stopped/);
     // The worker is respawned for analysis, and the 8 s already on disk are transcribed.
     expect(h.processes).toHaveLength(2);
-    expect(h.sessions.get(id)).toMatchObject({ state: 'GENERATING', durationMs: 8000 });
+    expect(h.sessions.get(id)).toMatchObject({ state: 'REVIEW', durationMs: 8000 });
   });
 
   it('applies a capture loss reported during start-up once the session is listening', async () => {
@@ -149,12 +183,18 @@ describe('SessionOrchestrator', () => {
     expect(logError).toHaveBeenCalledWith('handling capture loss failed', expect.anything());
   });
 
-  it('goes straight to GENERATING when there was no speech', async () => {
-    h = createCaptureHarness();
+  it('skips STT without speech, then stops before the LLM with a plain message', async () => {
+    const llm = quickNoteLlm();
+    h = createCaptureHarness({ llm });
     const id = await record(speechPattern(['silence', 10_000]));
     expect(h.sessions.get(id)?.state).toBe('GENERATING');
-    expect(h.jobs.listBySession(id)).toEqual([]);
+    expect(h.jobs.listBySession(id).map((j) => j.type)).toEqual(['generate_note']);
     expect(h.orchestrator.transcript(id)).toEqual([]);
+
+    await h.drainJobs();
+
+    expect(h.sessions.get(id)).toMatchObject({ state: 'GENERATING', error: NO_SPEECH_MESSAGE });
+    expect(llm.calls).toHaveLength(0);
   });
 
   it('stays retryable when STT fails permanently, and finishes after retry', async () => {
@@ -170,7 +210,7 @@ describe('SessionOrchestrator', () => {
     await h.orchestrator.retry(id);
     await h.drainJobs();
 
-    expect(h.sessions.get(id)).toMatchObject({ state: 'GENERATING', error: null });
+    expect(h.sessions.get(id)).toMatchObject({ state: 'REVIEW', error: null });
     expect(existsSync(spool)).toBe(true);
   });
 
@@ -220,7 +260,7 @@ describe('SessionOrchestrator', () => {
       await h.drainJobs();
 
       expect(h.events.find((e) => e.state === 'STOPPING')?.error).toBe(CLOSED_DURING_CAPTURE);
-      expect(h.sessions.get('s1')).toMatchObject({ state: 'GENERATING', durationMs: 50_000 });
+      expect(h.sessions.get('s1')).toMatchObject({ state: 'REVIEW', durationMs: 50_000 });
     });
 
     it('finishes a session interrupted while STOPPING', async () => {
@@ -228,7 +268,7 @@ describe('SessionOrchestrator', () => {
       seed('STOPPING');
       await h.orchestrator.recover();
       await h.drainJobs();
-      expect(h.sessions.get('s1')?.state).toBe('GENERATING');
+      expect(h.sessions.get('s1')?.state).toBe('REVIEW');
     });
 
     it('discards a session that never got past STARTING', async () => {
@@ -244,7 +284,7 @@ describe('SessionOrchestrator', () => {
       await h.orchestrator.recover();
       expect(h.jobs.listBySession('s1').length).toBeGreaterThan(0);
       await h.drainJobs();
-      expect(h.sessions.get('s1')?.state).toBe('GENERATING');
+      expect(h.sessions.get('s1')?.state).toBe('REVIEW');
     });
 
     it('requeues jobs that were running when the app closed', async () => {
@@ -289,7 +329,100 @@ describe('SessionOrchestrator', () => {
       await h.orchestrator.retry('s1');
       await h.drainJobs();
 
-      expect(h.sessions.get('s1')).toMatchObject({ state: 'GENERATING', error: null });
+      expect(h.sessions.get('s1')).toMatchObject({ state: 'REVIEW', error: null });
+    });
+
+    it('queues the note job for a GENERATING session that crashed before queueing it', async () => {
+      h = createCaptureHarness();
+      seed('GENERATING');
+      h.chunks.save('s1', 'fake-stt', CHUNK);
+
+      await h.orchestrator.recover();
+      expect(h.jobs.get(generateJobId('s1'))?.status).toBe('pending');
+      await h.drainJobs();
+
+      expect(h.sessions.get('s1')?.state).toBe('REVIEW');
+    });
+
+    it('moves a GENERATING session whose draft was saved before the crash to REVIEW', async () => {
+      const llm = quickNoteLlm();
+      h = createCaptureHarness({ llm });
+      seed('GENERATING');
+      h.drafts.save(DRAFT);
+
+      await h.orchestrator.recover();
+      await h.drainJobs();
+
+      expect(h.sessions.get('s1')?.state).toBe('REVIEW');
+      expect(llm.calls).toHaveLength(0);
+    });
+
+    it('leaves a failed GENERATING session and a REVIEW session alone', async () => {
+      h = createCaptureHarness();
+      seed('GENERATING');
+      h.db.prepare("UPDATE sessions SET error = 'Bad key' WHERE id = 's1'").run();
+      seed('REVIEW', 's2');
+      await h.orchestrator.recover();
+      expect(h.jobs.listBySession('s1')).toEqual([]);
+      expect(h.jobs.listBySession('s2')).toEqual([]);
+      expect(h.events).toEqual([]);
+    });
+  });
+
+  describe('notes', () => {
+    it('keeps the transcript when the LLM fails, and writes the note on retry', async () => {
+      const badKey = new ProviderError('API key not valid', 'fake-llm', false, 400);
+      h = createCaptureHarness({ llm: new FakeLLM([badKey]) });
+      const id = await record(LECTURE);
+      await h.drainJobs();
+
+      expect(h.sessions.get(id)).toMatchObject({ state: 'GENERATING', error: 'API key not valid' });
+      expect(h.orchestrator.transcript(id)).toHaveLength(2);
+
+      h.useLlm(quickNoteLlm());
+      await h.orchestrator.retry(id);
+      await h.drainJobs();
+
+      expect(h.sessions.get(id)).toMatchObject({ state: 'REVIEW', error: null });
+    });
+
+    it('fails visibly after one repair call, without automatic retries', async () => {
+      const llm = new FakeLLM([{ output: {} }, { output: {} }, { output: {} }]);
+      h = createCaptureHarness({ llm });
+      const id = await record(LECTURE);
+      await h.drainJobs();
+
+      expect(h.sessions.get(id)).toMatchObject({
+        state: 'GENERATING',
+        error: INVALID_NOTE_MESSAGE,
+      });
+      expect(llm.calls).toHaveLength(2);
+    });
+
+    it('saves the reviewed note and announces SAVED', async () => {
+      h = createCaptureHarness();
+      const id = await record(LECTURE);
+      await h.drainJobs();
+
+      const noteId = h.orchestrator.save(id, {
+        title: 'My title',
+        summary: 'Edited gist.',
+        keyPoints: [],
+        tags: ['Signals', 'signals'],
+      });
+
+      expect(h.states().at(-1)).toBe('SAVED');
+      expect(h.notes.get(noteId)).toMatchObject({
+        title: 'My title',
+        summary: 'Edited gist.',
+        tags: ['signals'],
+        mode: 'quick',
+        aiModel: 'fake-llm-1',
+        sttProvider: 'fake-stt',
+      });
+      expect(h.orchestrator.draft(id)).toBeNull();
+      // The spool is kept; cleaning it up after save is a separate, later step.
+      expect(existsSync(h.sessions.get(id)?.spoolPath ?? '')).toBe(true);
     });
   });
 });
