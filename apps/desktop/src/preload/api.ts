@@ -31,6 +31,11 @@ export type NovaApi = {
   readonly notes: {
     draft(request: IpcRequest<'notes:draft'>): Promise<IpcResponse<'notes:draft'>>;
     save(request: IpcRequest<'notes:save'>): Promise<IpcResponse<'notes:save'>>;
+    list(request: IpcRequest<'notes:list'>): Promise<IpcResponse<'notes:list'>>;
+    get(request: IpcRequest<'notes:get'>): Promise<IpcResponse<'notes:get'>>;
+    search(request: IpcRequest<'notes:search'>): Promise<IpcResponse<'notes:search'>>;
+    update(request: IpcRequest<'notes:update'>): Promise<IpcResponse<'notes:update'>>;
+    delete(request: IpcRequest<'notes:delete'>): Promise<IpcResponse<'notes:delete'>>;
   };
   /** Subscribes to a main → UI event. */
   on<E extends IpcEvent>(event: E, listener: (payload: IpcEventPayload<E>) => void): Unsubscribe;

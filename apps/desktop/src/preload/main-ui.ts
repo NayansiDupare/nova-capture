@@ -31,6 +31,11 @@ const api: NovaApi = {
   notes: {
     draft: (request) => ipcRenderer.invoke('notes:draft', request),
     save: (request) => ipcRenderer.invoke('notes:save', request),
+    list: (request) => ipcRenderer.invoke('notes:list', request),
+    get: (request) => ipcRenderer.invoke('notes:get', request),
+    search: (request) => ipcRenderer.invoke('notes:search', request),
+    update: (request) => ipcRenderer.invoke('notes:update', request),
+    delete: (request) => ipcRenderer.invoke('notes:delete', request),
   },
   on: (event, listener) => {
     if (!EVENTS.has(event)) {

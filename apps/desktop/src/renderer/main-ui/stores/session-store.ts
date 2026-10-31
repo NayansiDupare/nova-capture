@@ -5,7 +5,9 @@ import type { IpcEventPayload, IpcResponse, NoteDraft, NoteEdits, SessionState }
 
 import type { NovaApi, Unsubscribe } from '../../../preload/api';
 
-export type SessionApi = Pick<NovaApi, 'capture' | 'sessions' | 'notes' | 'on'>;
+export type SessionApi = Pick<NovaApi, 'capture' | 'sessions' | 'on'> & {
+  readonly notes: Pick<NovaApi['notes'], 'draft' | 'save'>;
+};
 
 export type Segment = IpcResponse<'sessions:transcript'>['segments'][number];
 
